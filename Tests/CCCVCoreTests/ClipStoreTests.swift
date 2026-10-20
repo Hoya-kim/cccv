@@ -63,6 +63,16 @@ private func text(_ s: String) -> ClipContent { ClipContent(kind: .text, text: s
     #expect(try store.search("없는말").isEmpty)
 }
 
+@Test func excludedPatternMatchesWholeTrimmedText() {
+    let otp = [#"^\d{6}$"#]
+    #expect(PasteboardRules.matchesExcludedPattern("123456", patterns: otp))
+    #expect(PasteboardRules.matchesExcludedPattern(" 123456\n", patterns: otp))
+    #expect(!PasteboardRules.matchesExcludedPattern("1234567", patterns: otp))
+    #expect(!PasteboardRules.matchesExcludedPattern("code 123456", patterns: otp))
+    #expect(!PasteboardRules.matchesExcludedPattern("123456", patterns: ["("])) // 잘못된 패턴은 무시
+    #expect(!PasteboardRules.isValidPattern("("))
+}
+
 @Test func ignoresConcealedTypes() {
     #expect(PasteboardRules.shouldIgnore(types: ["public.utf8-plain-text", "org.nspasteboard.ConcealedType"]))
     #expect(!PasteboardRules.shouldIgnore(types: ["public.utf8-plain-text"]))

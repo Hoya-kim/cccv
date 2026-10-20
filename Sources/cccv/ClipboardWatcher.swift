@@ -27,13 +27,15 @@ final class ClipboardWatcher {
         guard !isPaused else { return }
 
         let types = pasteboard.types?.map(\.rawValue) ?? []
-        guard !PasteboardRules.shouldIgnore(types: types) else { return }
-        // 실행 전 복사분과 cccv 자신이 쓴 항목은 출처를 알 수 없다 (frontmost 는 엉뚱한 앱).
-        let knowsSource = !isFirstRead && !types.contains(PasteboardRules.ownType)
-        let source = knowsSource ? NSWorkspace.shared.frontmostApplication?.bundleIdentifier : nil
+        // cccv 가 붙여넣으려고 쓴 내용은 새 복사가 아니다 (⇧Return 텍스트가 새 항목으로 쌓이는 것 방지).
+        guard !PasteboardRules.shouldIgnore(types: types), !types.contains(PasteboardRules.ownType) else { return }
+        // 실행 전 복사분은 출처를 알 수 없다 (frontmost 는 엉뚱한 앱).
+        let source = isFirstRead ? nil : NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         // 내용을 읽기 전에 거른다 — 제외 앱의 데이터는 메모리에도 올리지 않는다.
         if let source, AppSettings.excludedBundleIDs.contains(source) { return }
-        guard let content = readContent() else { return }
+        guard let content = readContent(),
+              !PasteboardRules.matchesExcludedPattern(content.text, patterns: AppSettings.excludedPatterns.map(\.pattern))
+        else { return }
         onNewContent?(content, source)
     }
 

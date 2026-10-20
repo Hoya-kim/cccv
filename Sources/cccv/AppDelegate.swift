@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.position = UserDefaults.standard.string(forKey: Self.positionKey).flatMap(BarPosition.init) ?? .bottom
         setUpStatusItem()
+        setUpMainMenu()
 
         panel.contentView = NSHostingView(rootView: BarView(
             model: model,
@@ -127,14 +128,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = "cccv 설정"
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
+            MainActor.assumeIsolated { _ = NSApp.setActivationPolicy(.accessory) }
+        }
         return window
     }()
 
     @objc private func openSettings() {
-        // 메뉴바 전용 앱이라 먼저 활성화해야 창이 앞으로 온다.
+        // accessory 앱은 activate 해도 앞으로 오지 않을 때가 있다 → 설정 창이 열린 동안만 일반 앱으로.
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         settingsWindow.center()
         settingsWindow.makeKeyAndOrderFront(nil)
+        settingsWindow.orderFrontRegardless()
+    }
+
+    /// 메뉴바 전용 앱은 메인 메뉴가 없어 ⌘W·⌘C·⌘V 같은 키가 동작하지 않는다.
+    private func setUpMainMenu() {
+        let mainMenu = NSMenu()
+
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "설정…", action: #selector(openSettings), keyEquivalent: ",").target = self
+        appMenu.addItem(withTitle: "창 닫기", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        appMenu.addItem(withTitle: "cccv 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        mainMenu.addItem(withTitle: "cccv", action: nil, keyEquivalent: "").submenu = appMenu
+
+        let editMenu = NSMenu(title: "편집")
+        editMenu.addItem(withTitle: "실행 취소", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "실행 복귀", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "잘라내기", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "복사하기", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "붙여넣기", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "전체 선택", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        mainMenu.addItem(withTitle: "편집", action: nil, keyEquivalent: "").submenu = editMenu
+
+        NSApp.mainMenu = mainMenu
     }
 
     private func toggle() {
@@ -187,6 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard model.items.indices.contains(index) else { return }
         let item = model.items[index]
         hide()
+        // 붙여넣어도 순서는 그대로 둔다 (사용자 결정). 감시기는 cccv 자신의 쓰기를 무시한다.
         Paster.paste(item, plainText: plainText)
     }
 }
