@@ -5,6 +5,8 @@ import CCCVCore
 @MainActor
 final class ClipboardWatcher {
     var onNewContent: (@MainActor (ClipContent, String?) -> Void)?
+    /// 일시정지 중 복사한 내용은 재개 후에도 기록하지 않는다 (changeCount 는 계속 따라간다).
+    var isPaused = false
 
     private let pasteboard = NSPasteboard.general
     /// nil 이면 아직 한 번도 읽지 않은 상태 → 첫 poll 에서 실행 전부터 있던 클립보드를 받는다.
@@ -22,12 +24,17 @@ final class ClipboardWatcher {
         guard pasteboard.changeCount != lastChangeCount else { return }
         let isFirstRead = lastChangeCount == nil
         lastChangeCount = pasteboard.changeCount
+        guard !isPaused else { return }
 
         let types = pasteboard.types?.map(\.rawValue) ?? []
-        guard !PasteboardRules.shouldIgnore(types: types), let content = readContent() else { return }
+        guard !PasteboardRules.shouldIgnore(types: types) else { return }
         // 실행 전 복사분과 cccv 자신이 쓴 항목은 출처를 알 수 없다 (frontmost 는 엉뚱한 앱).
         let knowsSource = !isFirstRead && !types.contains(PasteboardRules.ownType)
-        onNewContent?(content, knowsSource ? NSWorkspace.shared.frontmostApplication?.bundleIdentifier : nil)
+        let source = knowsSource ? NSWorkspace.shared.frontmostApplication?.bundleIdentifier : nil
+        // 내용을 읽기 전에 거른다 — 제외 앱의 데이터는 메모리에도 올리지 않는다.
+        if let source, AppSettings.excludedBundleIDs.contains(source) { return }
+        guard let content = readContent() else { return }
+        onNewContent?(content, source)
     }
 
     private func readContent() -> ClipContent? {

@@ -81,6 +81,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "바 위치", action: nil, keyEquivalent: "").submenu = positionMenu
 
         menu.addItem(.separator())
+        menu.addItem(withTitle: "수집 일시정지", action: #selector(togglePause(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "설정…", action: #selector(openSettings), keyEquivalent: ",").target = self
+        menu.addItem(.separator())
         menu.addItem(withTitle: "종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         statusItem = item
@@ -108,6 +111,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private static let positionKey = "barPosition"
+
+    // ponytail: 일시정지는 앱을 다시 켜면 풀린다. 기간 지정(Paste 처럼)은 필요해지면.
+    @objc private func togglePause(_ sender: NSMenuItem) {
+        watcher.isPaused.toggle()
+        sender.title = watcher.isPaused ? "수집 재개" : "수집 일시정지"
+        statusItem?.button?.image = NSImage(
+            systemSymbolName: watcher.isPaused ? "pause.circle" : "doc.on.clipboard",
+            accessibilityDescription: watcher.isPaused ? "cccv (일시정지)" : "cccv"
+        )
+    }
+
+    private lazy var settingsWindow: NSWindow = {
+        let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView()))
+        window.title = "cccv 설정"
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        return window
+    }()
+
+    @objc private func openSettings() {
+        // 메뉴바 전용 앱이라 먼저 활성화해야 창이 앞으로 온다.
+        NSApp.activate()
+        settingsWindow.center()
+        settingsWindow.makeKeyAndOrderFront(nil)
+    }
 
     private func toggle() {
         panel.isVisible ? hide() : show()
