@@ -1,6 +1,7 @@
 #!/bin/bash
 # release 빌드 후 build/cccv.app 으로 조립·서명한다.
-# 서명 인증서가 있으면 CODESIGN_IDENTITY 로 지정. 없으면 ad-hoc(-) 서명.
+# 서명: CODESIGN_IDENTITY > 키체인의 첫 "Apple Development" 인증서 > ad-hoc(-).
+# ad-hoc 은 빌드마다 서명이 바뀌어 접근성 권한이 풀린다.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -28,5 +29,10 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-codesign --force --sign "${CODESIGN_IDENTITY:--}" "$APP"
+IDENTITY=${CODESIGN_IDENTITY:-$(security find-identity -v -p codesigning | grep -m1 '"Apple Development' | awk '{print $2}' || true)}
+if [ -z "$IDENTITY" ]; then
+    echo "warning: Apple Development 인증서가 없어 ad-hoc 서명합니다. 재빌드마다 접근성 권한을 다시 줘야 합니다." >&2
+    IDENTITY=-
+fi
+codesign --force --sign "$IDENTITY" "$APP"
 echo "$APP"
