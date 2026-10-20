@@ -47,6 +47,22 @@ private func text(_ s: String) -> ClipContent { ClipContent(kind: .text, text: s
     #expect(try reopened.recent().map(\.text) == ["kept"])
 }
 
+@MainActor
+@Test func searchMatchesTextAndLinkTitle() throws {
+    let store = try ClipStore(url: nil)
+    let start = Date()
+    try store.add(text("Hello World"), sourceBundleID: nil, at: start)
+    try store.add(text("다른 내용"), sourceBundleID: nil, at: start + 1)
+    try store.add(ClipContent(kind: .link, text: "https://shop.example.com"), sourceBundleID: nil, at: start + 2)
+    try store.recent().first { $0.kind == .link }?.linkTitle = "예시 쇼핑몰"
+    try store.save()
+
+    #expect(try store.search("hello").map(\.text) == ["Hello World"]) // 대소문자 무시
+    #expect(try store.search("쇼핑").map(\.text) == ["https://shop.example.com"]) // 링크 제목
+    #expect(try store.search("  ").count == 3) // 빈 검색어 → 최근 목록
+    #expect(try store.search("없는말").isEmpty)
+}
+
 @Test func ignoresConcealedTypes() {
     #expect(PasteboardRules.shouldIgnore(types: ["public.utf8-plain-text", "org.nspasteboard.ConcealedType"]))
     #expect(!PasteboardRules.shouldIgnore(types: ["public.utf8-plain-text"]))

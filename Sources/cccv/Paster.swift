@@ -5,8 +5,16 @@ import CCCVCore
 @MainActor
 enum Paster {
     /// 클립보드에 쓰고 ⌘V 를 합성한다. 접근성 권한이 없으면 클립보드 복사까지만 한다.
-    static func paste(_ item: ClipItem) {
-        write(item, to: .general)
+    /// plainText 면 서식 없이 텍스트만 쓴다 (파일은 경로 텍스트). 텍스트가 없는 이미지는 그대로 붙여넣는다.
+    static func paste(_ item: ClipItem, plainText: Bool = false) {
+        if plainText, !item.text.isEmpty {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(item.text, forType: .string)
+            pasteboard.setData(Data(), forType: .init(PasteboardRules.ownType))
+        } else {
+            write(item, to: .general)
+        }
 
         guard AXIsProcessTrusted() else { return }
 

@@ -8,15 +8,40 @@ final class BarModel {
     var items: [ClipItem] = []
     var selection = 0
     var position = BarPosition.bottom
+    var query = ""
+    /// 바를 열 때마다 올려서 검색창에 포커스를 준다.
+    var showCount = 0
 }
 
 struct BarView: View {
-    let model: BarModel
+    @Bindable var model: BarModel
     let onPick: (Int) -> Void
     /// 카드가 처음 보일 때 (링크 미리보기 가져오기 등).
     let onCardAppear: (ClipItem) -> Void
+    let onQueryChange: () -> Void
+
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("검색", text: $model.query)
+                    .textFieldStyle(.plain)
+                    .focused($searchFocused)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            cardList
+        }
+        .onChange(of: model.query) { onQueryChange() }
+        .onChange(of: model.showCount) { searchFocused = true }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .padding(8)
+    }
+
+    private var cardList: some View {
         ScrollViewReader { proxy in
             ScrollView(model.position.isHorizontal ? .horizontal : .vertical, showsIndicators: false) {
                 if model.position.isHorizontal {
@@ -32,12 +57,10 @@ struct BarView: View {
         }
         .overlay {
             if model.items.isEmpty {
-                Text("복사한 항목이 없습니다").foregroundStyle(.secondary)
+                Text(model.query.isEmpty ? "복사한 항목이 없습니다" : "검색 결과가 없습니다").foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .padding(8)
     }
 
     private var cards: some View {

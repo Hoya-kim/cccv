@@ -29,6 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onCardAppear: { [weak self] item in
                 guard let self else { return }
                 LinkPreview.fetchIfNeeded(item, store: store)
+            },
+            onQueryChange: { [weak self] in
+                self?.model.selection = 0
+                self?.reloadItems()
             }
         ))
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
@@ -84,7 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func reloadItems() {
         do {
-            model.items = try store.recent()
+            model.items = try store.search(model.query)
         } catch {
             NSLog("cccv: 불러오기 실패 %@", String(describing: error))
         }
@@ -110,11 +114,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func show() {
+        model.query = ""
         model.selection = 0
+        model.showCount += 1
         panel.show(at: model.position)
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let keyCode = Int(event.keyCode)
-            let handled = MainActor.assumeIsolated { self?.handleKey(keyCode) ?? false }
+            let shift = event.modifierFlags.contains(.shift)
+            let handled = MainActor.assumeIsolated { self?.handleKey(keyCode, shift: shift) ?? false }
             return handled ? nil : event
         }
     }
@@ -126,8 +133,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keyMonitor = nil
     }
 
-    /// 처리한 키면 true (이벤트 소비).
-    private func handleKey(_ keyCode: Int) -> Bool {
+    /// 처리한 키면 true (이벤트 소비). 그 외 키는 검색창으로 간다.
+    private func handleKey(_ keyCode: Int, shift: Bool) -> Bool {
+        // 한글 등 조합 중이면 Return·방향키는 입력기 몫이다.
+        if (panel.firstResponder as? NSTextView)?.hasMarkedText() == true { return false }
         // 바 방향에 맞는 방향키만 쓴다 (가로 ←→, 세로 ↑↓).
         let horizontal = model.position.isHorizontal
         switch keyCode {
@@ -136,19 +145,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case horizontal ? kVK_RightArrow : kVK_DownArrow:
             model.selection = min(model.selection + 1, max(model.items.count - 1, 0))
         case kVK_Return, kVK_ANSI_KeypadEnter:
-            pick(model.selection)
+            pick(model.selection, plainText: shift)
         case kVK_Escape:
-            hide()
+            // 검색 중이면 검색어부터 지운다.
+            if model.query.isEmpty { hide() } else { model.query = "" }
         default:
             return false
         }
         return true
     }
 
-    private func pick(_ index: Int) {
+    private func pick(_ index: Int, plainText: Bool = false) {
         guard model.items.indices.contains(index) else { return }
         let item = model.items[index]
         hide()
-        Paster.paste(item)
+        Paster.paste(item, plainText: plainText)
     }
 }

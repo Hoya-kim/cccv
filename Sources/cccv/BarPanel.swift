@@ -4,7 +4,7 @@ import CCCVCore
 /// 대상 앱을 비활성화하지 않고 키 입력을 받는 패널.
 final class BarPanel: NSPanel {
     /// 가로 바의 높이 = 세로 바의 너비.
-    static let thickness: CGFloat = 260
+    static let thickness: CGFloat = 300
 
     init() {
         super.init(contentRect: .zero, styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)

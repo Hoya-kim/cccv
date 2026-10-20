@@ -79,6 +79,22 @@ public final class ClipStore {
         return try context.fetch(descriptor)
     }
 
+    /// 본문과 링크 제목에서 대소문자·발음 기호 무시하고 찾는다. 최신순.
+    // ponytail: 키 입력마다 LIKE 스캔. 수만 건에서 느려지면 SQLite FTS5 로.
+    public func search(_ query: String, limit: Int = 200) throws -> [ClipItem] {
+        let query = query.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return try recent(limit: limit) }
+        var descriptor = FetchDescriptor<ClipItem>(
+            predicate: #Predicate {
+                $0.text.localizedStandardContains(query)
+                    || ($0.linkTitle.flatMap { $0.localizedStandardContains(query) } ?? false)
+            },
+            sortBy: [SortDescriptor(\.copiedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return try context.fetch(descriptor)
+    }
+
     /// 해시 컬럼이 생기기 전에 저장된 레코드를 채운다. 없으면 아무것도 하지 않는다.
     private func backfillHashes() throws {
         let missing = try context.fetch(FetchDescriptor(predicate: #Predicate<ClipItem> { $0.contentHash == "" }))
