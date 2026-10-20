@@ -11,6 +11,10 @@ public final class ClipItem {
     public var contentHash: String = ""
     public var sourceBundleID: String?
     public var copiedAt: Date
+    // 링크 미리보기 (OG). linkFetchedAt 이 있으면 시도한 것 — 실패해도 다시 가져오지 않는다.
+    public var linkTitle: String?
+    @Attribute(.externalStorage) public var linkImage: Data?
+    public var linkFetchedAt: Date?
 
     public var kind: ClipKind { ClipKind(rawValue: kindRaw) ?? .text }
 
@@ -60,6 +64,11 @@ public final class ClipStore {
         } else {
             context.insert(ClipItem(content: content, sourceBundleID: sourceBundleID, copiedAt: date))
         }
+        try context.save()
+    }
+
+    /// 조회한 모델 인스턴스를 직접 고친 뒤 저장할 때.
+    public func save() throws {
         try context.save()
     }
 

@@ -20,11 +20,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // 저장소 파일은 건드리지 않고 종료한다 (기록 유실 방지).
             fatalError("cccv: 저장소를 열 수 없습니다 \(ClipStore.defaultURL.path): \(error)")
         }
+        model.position = UserDefaults.standard.string(forKey: Self.positionKey).flatMap(BarPosition.init) ?? .bottom
         setUpStatusItem()
 
-        panel.contentView = NSHostingView(rootView: BarView(model: model) { [weak self] index in
-            self?.pick(index)
-        })
+        panel.contentView = NSHostingView(rootView: BarView(
+            model: model,
+            onPick: { [weak self] index in self?.pick(index) },
+            onCardAppear: { [weak self] item in
+                guard let self else { return }
+                LinkPreview.fetchIfNeeded(item, store: store)
+            }
+        ))
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.hide() }
         }
@@ -59,6 +65,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "cccv")
         let menu = NSMenu()
         menu.addItem(withTitle: "열기 (⇧⌘V)", action: #selector(showFromMenu), keyEquivalent: "").target = self
+
+        // ponytail: 설정 창(M1 ⑥)이 생기기 전까지 위치 선택은 메뉴에서.
+        let positionMenu = NSMenu()
+        for position in BarPosition.allCases {
+            let positionItem = positionMenu.addItem(withTitle: position.label, action: #selector(selectPosition(_:)), keyEquivalent: "")
+            positionItem.target = self
+            positionItem.representedObject = position.rawValue
+            positionItem.state = position == model.position ? .on : .off
+        }
+        menu.addItem(withTitle: "바 위치", action: nil, keyEquivalent: "").submenu = positionMenu
+
         menu.addItem(.separator())
         menu.addItem(withTitle: "종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
@@ -77,13 +94,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         show()
     }
 
+    @objc private func selectPosition(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let position = BarPosition(rawValue: raw) else { return }
+        model.position = position
+        UserDefaults.standard.set(raw, forKey: Self.positionKey)
+        // 열린 상태에서 바꾸면 내용만 가로/세로로 바뀌고 창 크기는 그대로 남는다 → 다시 배치.
+        if panel.isVisible { panel.show(at: position) }
+        sender.menu?.items.forEach { $0.state = $0 === sender ? .on : .off }
+    }
+
+    private static let positionKey = "barPosition"
+
     private func toggle() {
         panel.isVisible ? hide() : show()
     }
 
     private func show() {
         model.selection = 0
-        panel.showAtBottomOfMouseScreen()
+        panel.show(at: model.position)
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let keyCode = Int(event.keyCode)
             let handled = MainActor.assumeIsolated { self?.handleKey(keyCode) ?? false }
@@ -100,10 +128,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 처리한 키면 true (이벤트 소비).
     private func handleKey(_ keyCode: Int) -> Bool {
+        // 바 방향에 맞는 방향키만 쓴다 (가로 ←→, 세로 ↑↓).
+        let horizontal = model.position.isHorizontal
         switch keyCode {
-        case kVK_LeftArrow:
+        case horizontal ? kVK_LeftArrow : kVK_UpArrow:
             model.selection = max(model.selection - 1, 0)
-        case kVK_RightArrow:
+        case horizontal ? kVK_RightArrow : kVK_DownArrow:
             model.selection = min(model.selection + 1, max(model.items.count - 1, 0))
         case kVK_Return, kVK_ANSI_KeypadEnter:
             pick(model.selection)

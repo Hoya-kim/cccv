@@ -7,23 +7,23 @@ import SwiftUI
 final class BarModel {
     var items: [ClipItem] = []
     var selection = 0
+    var position = BarPosition.bottom
 }
 
 struct BarView: View {
     let model: BarModel
     let onPick: (Int) -> Void
+    /// 카드가 처음 보일 때 (링크 미리보기 가져오기 등).
+    let onCardAppear: (ClipItem) -> Void
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 12) {
-                    ForEach(Array(model.items.enumerated()), id: \.element.persistentModelID) { index, item in
-                        ClipCard(item: item, isSelected: index == model.selection)
-                            .id(item.persistentModelID)
-                            .onTapGesture { onPick(index) }
-                    }
+            ScrollView(model.position.isHorizontal ? .horizontal : .vertical, showsIndicators: false) {
+                if model.position.isHorizontal {
+                    LazyHStack(spacing: 12) { cards }.padding(16)
+                } else {
+                    LazyVStack(spacing: 12) { cards }.padding(16)
                 }
-                .padding(16)
             }
             .onChange(of: model.selection) { _, selection in
                 guard model.items.indices.contains(selection) else { return }
@@ -38,6 +38,15 @@ struct BarView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
         .padding(8)
+    }
+
+    private var cards: some View {
+        ForEach(Array(model.items.enumerated()), id: \.element.persistentModelID) { index, item in
+            ClipCard(item: item, isSelected: index == model.selection)
+                .id(item.persistentModelID)
+                .onTapGesture { onPick(index) }
+                .onAppear { onCardAppear(item) }
+        }
     }
 }
 
@@ -56,9 +65,11 @@ private struct ClipCard: View {
             .foregroundStyle(.secondary)
             preview
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            Text(item.copiedAt, style: .relative)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            TimelineView(.everyMinute) { context in
+                Text(RelativeTime.label(since: item.copiedAt, now: context.date))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
         }
         .padding(12)
         .frame(width: 200, height: 210)
@@ -75,9 +86,20 @@ private struct ClipCard: View {
         case .text, .richText:
             Text(item.text).font(.system(size: 12)).lineLimit(9)
         case .link:
-            VStack(alignment: .leading, spacing: 4) {
-                Text(URL(string: item.text)?.host() ?? item.text).font(.system(size: 13, weight: .semibold))
-                Text(item.text).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(6)
+            // OG 미리보기가 없으면(가져오는 중·실패) 호스트 + URL 로 표시한다.
+            VStack(alignment: .leading, spacing: 6) {
+                if let data = item.linkImage, let image = NSImage(data: data) {
+                    Image(nsImage: image).resizable().scaledToFill()
+                        .frame(maxWidth: .infinity).frame(height: 90).clipped()
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                if let title = item.linkTitle {
+                    Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(3)
+                    Text(URL(string: item.text)?.host() ?? "").font(.system(size: 11)).foregroundStyle(.secondary)
+                } else {
+                    Text(URL(string: item.text)?.host() ?? item.text).font(.system(size: 13, weight: .semibold))
+                    Text(item.text).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(6)
+                }
             }
         case .color:
             VStack(alignment: .leading, spacing: 8) {
