@@ -7,7 +7,9 @@ import UniformTypeIdentifiers
 @MainActor
 enum LinkPreview {
     static func fetchIfNeeded(_ item: ClipItem, store: ClipStore) {
-        guard item.kind == .link, item.linkFetchedAt == nil, let url = URL(string: item.text) else { return }
+        // 꺼져 있으면 시도 표시도 남기지 않는다 — 다시 켜면 그때 가져온다.
+        guard AppSettings.linkPreviewEnabled,
+              item.kind == .link, item.linkFetchedAt == nil, let url = URL(string: item.text) else { return }
         // 먼저 시도 표시를 남긴다 — 카드가 여러 번 그려져도 한 번만 요청하고, 실패하면 URL 표시로 남는다.
         item.linkFetchedAt = Date()
         try? store.save()

@@ -20,7 +20,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // 저장소 파일은 건드리지 않고 종료한다 (기록 유실 방지).
             fatalError("cccv: 저장소를 열 수 없습니다 \(ClipStore.defaultURL.path): \(error)")
         }
-        model.position = UserDefaults.standard.string(forKey: Self.positionKey).flatMap(BarPosition.init) ?? .bottom
+        model.position = AppSettings.barPosition
+        purgeExpired()
+        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.purgeExpired() }
+        }
         setUpStatusItem()
         setUpMainMenu()
 
@@ -67,20 +71,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setUpStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "cccv")
+        // 템플릿 이미지라 라이트·다크 메뉴바에 맞춰 색이 바뀐다. swift run 처럼 번들 밖에서 실행하면 SF Symbol 로.
+        let icon = NSImage(named: "MenuBarIcon") ?? NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: nil)
+        icon?.isTemplate = true
+        icon?.accessibilityDescription = "cccv"
+        item.button?.image = icon
         let menu = NSMenu()
         menu.addItem(withTitle: "열기 (⇧⌘V)", action: #selector(showFromMenu), keyEquivalent: "").target = self
-
-        // ponytail: 설정 창(M1 ⑥)이 생기기 전까지 위치 선택은 메뉴에서.
-        let positionMenu = NSMenu()
-        for position in BarPosition.allCases {
-            let positionItem = positionMenu.addItem(withTitle: position.label, action: #selector(selectPosition(_:)), keyEquivalent: "")
-            positionItem.target = self
-            positionItem.representedObject = position.rawValue
-            positionItem.state = position == model.position ? .on : .off
-        }
-        menu.addItem(withTitle: "바 위치", action: nil, keyEquivalent: "").submenu = positionMenu
-
         menu.addItem(.separator())
         menu.addItem(withTitle: "수집 일시정지", action: #selector(togglePause(_:)), keyEquivalent: "").target = self
         menu.addItem(withTitle: "설정…", action: #selector(openSettings), keyEquivalent: ",").target = self
@@ -102,29 +99,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         show()
     }
 
-    @objc private func selectPosition(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let position = BarPosition(rawValue: raw) else { return }
-        model.position = position
-        UserDefaults.standard.set(raw, forKey: Self.positionKey)
-        // 열린 상태에서 바꾸면 내용만 가로/세로로 바뀌고 창 크기는 그대로 남는다 → 다시 배치.
-        if panel.isVisible { panel.show(at: position) }
-        sender.menu?.items.forEach { $0.state = $0 === sender ? .on : .off }
+    /// 보존 기간이 지난 항목을 지운다. 실행 시·1시간마다·보존 기간 변경 시.
+    private func purgeExpired() {
+        do {
+            if try store.purge(olderThan: AppSettings.retentionCutoff()) > 0 { reloadItems() }
+        } catch {
+            NSLog("cccv: 보존 기간 정리 실패 %@", String(describing: error))
+        }
     }
-
-    private static let positionKey = "barPosition"
 
     // ponytail: 일시정지는 앱을 다시 켜면 풀린다. 기간 지정(Paste 처럼)은 필요해지면.
     @objc private func togglePause(_ sender: NSMenuItem) {
         watcher.isPaused.toggle()
         sender.title = watcher.isPaused ? "수집 재개" : "수집 일시정지"
-        statusItem?.button?.image = NSImage(
-            systemSymbolName: watcher.isPaused ? "pause.circle" : "doc.on.clipboard",
-            accessibilityDescription: watcher.isPaused ? "cccv (일시정지)" : "cccv"
-        )
+        // 일시정지 중에는 아이콘을 흐리게 표시한다.
+        statusItem?.button?.appearsDisabled = watcher.isPaused
     }
 
     private lazy var settingsWindow: NSWindow = {
-        let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView()))
+        let controller = NSHostingController(rootView: SettingsView(
+            model: model,
+            store: store,
+            onRetentionChange: { [weak self] in self?.purgeExpired() }
+        ))
+        controller.sizingOptions = [.preferredContentSize] // 탭을 바꾸면 창 높이가 따라간다
+        let window = NSWindow(contentViewController: controller)
         window.title = "cccv 설정"
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false

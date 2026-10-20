@@ -95,6 +95,22 @@ public final class ClipStore {
         return try context.fetch(descriptor)
     }
 
+    /// 보존 기간 정리 전에 삭제 대상 건수를 보여 주기 위한 것.
+    public func count(olderThan date: Date) throws -> Int {
+        try context.fetchCount(FetchDescriptor(predicate: #Predicate<ClipItem> { $0.copiedAt < date }))
+    }
+
+    /// date 이전에 복사한 항목을 지운다. 지운 건수를 돌려준다.
+    // ponytail: SQLite 파일은 줄지 않고 빈 페이지를 재사용한다 (원본 파일은 externalStorage 라 함께 지워진다). 필요하면 VACUUM.
+    @discardableResult
+    public func purge(olderThan date: Date) throws -> Int {
+        let old = try context.fetch(FetchDescriptor(predicate: #Predicate<ClipItem> { $0.copiedAt < date }))
+        guard !old.isEmpty else { return 0 }
+        old.forEach(context.delete)
+        try context.save()
+        return old.count
+    }
+
     /// 해시 컬럼이 생기기 전에 저장된 레코드를 채운다. 없으면 아무것도 하지 않는다.
     private func backfillHashes() throws {
         let missing = try context.fetch(FetchDescriptor(predicate: #Predicate<ClipItem> { $0.contentHash == "" }))

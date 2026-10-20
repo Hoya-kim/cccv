@@ -9,8 +9,19 @@ swift build -c release
 
 APP=build/cccv.app
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/cccv "$APP/Contents/MacOS/cccv"
+
+# 앱 아이콘: 1024 원본 → iconset → icns
+ICONSET=build/AppIcon.iconset
+rm -rf "$ICONSET"
+mkdir -p "$ICONSET"
+for size in 16 32 128 256 512; do
+    sips -z $size $size Resources/AppIcon-1024.png --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+    sips -z $((size * 2)) $((size * 2)) Resources/AppIcon-1024.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+cp Resources/MenuBarIcon.png Resources/MenuBarIcon@2x.png "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -18,6 +29,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key><string>cccv</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleIdentifier</key><string>local.cccv</string>
     <key>CFBundleName</key><string>cccv</string>
     <key>CFBundlePackageType</key><string>APPL</string>
@@ -35,4 +47,15 @@ if [ -z "$IDENTITY" ]; then
     IDENTITY=-
 fi
 codesign --force --sign "$IDENTITY" "$APP"
-echo "$APP"
+
+# 로그인 시 자동 실행은 앱 경로 기준이라 고정 위치에 설치한다.
+# 같은 이름의 다른 앱을 지우지 않도록 번들 ID 가 local.cccv 일 때만 교체한다.
+DEST=/Applications/cccv.app
+if [ -e "$DEST" ] && [ "$(defaults read "$DEST/Contents/Info" CFBundleIdentifier 2>/dev/null)" != "local.cccv" ]; then
+    echo "error: $DEST 가 cccv 가 아닌 다른 앱입니다. 설치를 건너뜁니다." >&2
+    exit 1
+fi
+rm -rf "$DEST"
+# 복사가 아니라 이동 — build/ 에 사본이 남으면 Spotlight·앱 목록에 cccv 가 두 개 뜬다.
+mv "$APP" "$DEST"
+echo "$DEST"

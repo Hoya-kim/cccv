@@ -63,6 +63,20 @@ private func text(_ s: String) -> ClipContent { ClipContent(kind: .text, text: s
     #expect(try store.search("없는말").isEmpty)
 }
 
+@MainActor
+@Test func purgeDeletesOnlyOlderItems() throws {
+    let store = try ClipStore(url: nil)
+    let now = Date()
+    try store.add(text("old"), sourceBundleID: nil, at: now - 31 * 86400)
+    try store.add(text("edge"), sourceBundleID: nil, at: now - 30 * 86400)
+    try store.add(text("new"), sourceBundleID: nil, at: now)
+    let cutoff = now - 30 * 86400
+    #expect(try store.count(olderThan: cutoff) == 1)
+    #expect(try store.purge(olderThan: cutoff) == 1)
+    #expect(try store.recent().map(\.text) == ["new", "edge"])
+    #expect(try store.purge(olderThan: cutoff) == 0)
+}
+
 @Test func excludedPatternMatchesWholeTrimmedText() {
     let otp = [#"^\d{6}$"#]
     #expect(PasteboardRules.matchesExcludedPattern("123456", patterns: otp))
