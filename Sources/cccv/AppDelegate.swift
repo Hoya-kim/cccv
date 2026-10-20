@@ -5,7 +5,7 @@ import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var history = History()
+    private var store: ClipStore!
     private let model = BarModel()
     private let watcher = ClipboardWatcher()
     private let panel = BarPanel()
@@ -14,6 +14,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var keyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        do {
+            store = try ClipStore(url: ClipStore.defaultURL)
+        } catch {
+            // 저장소 파일은 건드리지 않고 종료한다 (기록 유실 방지).
+            fatalError("cccv: 저장소를 열 수 없습니다 \(ClipStore.defaultURL.path): \(error)")
+        }
         setUpStatusItem()
 
         panel.contentView = NSHostingView(rootView: BarView(model: model) { [weak self] index in
@@ -25,9 +31,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         watcher.onNewText = { [weak self] text, source in
             guard let self else { return }
-            history.add(text: text, sourceBundleID: source)
-            model.items = history.items
+            do {
+                try store.add(text: text, sourceBundleID: source)
+            } catch {
+                NSLog("cccv: 저장 실패 %@", String(describing: error))
+            }
+            reloadItems()
         }
+        reloadItems()
         watcher.start()
 
         hotKey = HotKey(keyCode: kVK_ANSI_V, modifiers: cmdKey | shiftKey) { [weak self] in
@@ -52,6 +63,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         statusItem = item
+    }
+
+    private func reloadItems() {
+        do {
+            model.items = try store.recent()
+        } catch {
+            NSLog("cccv: 불러오기 실패 %@", String(describing: error))
+        }
     }
 
     @objc private func showFromMenu() {

@@ -17,9 +17,9 @@ struct BarView: View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
-                    ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
+                    ForEach(Array(model.items.enumerated()), id: \.element.persistentModelID) { index, item in
                         ClipCard(item: item, isSelected: index == model.selection)
-                            .id(item.id)
+                            .id(item.persistentModelID)
                             .onTapGesture { onPick(index) }
                     }
                 }
@@ -27,7 +27,7 @@ struct BarView: View {
             }
             .onChange(of: model.selection) { _, selection in
                 guard model.items.indices.contains(selection) else { return }
-                proxy.scrollTo(model.items[selection].id, anchor: .center)
+                proxy.scrollTo(model.items[selection].persistentModelID, anchor: .center)
             }
         }
         .overlay {

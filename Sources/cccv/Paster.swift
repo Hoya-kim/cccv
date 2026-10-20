@@ -1,5 +1,6 @@
 import AppKit
 import Carbon
+import CCCVCore
 
 @MainActor
 enum Paster {
@@ -8,6 +9,7 @@ enum Paster {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        pasteboard.setData(Data(), forType: .init(PasteboardRules.ownType))
 
         guard AXIsProcessTrusted() else { return }
 
