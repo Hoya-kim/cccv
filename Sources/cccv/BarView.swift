@@ -9,8 +9,14 @@ final class BarModel {
     var selection = 0
     var position = BarPosition.bottom
     var query = ""
+    /// true 면 고정 항목만 보여 준다 (⌘← / ⌘→ 로 전환).
+    var pinnedOnly = false
     /// 바를 열 때마다 올려서 검색창에 포커스를 준다.
     var showCount = 0
+}
+
+enum CardAction {
+    case togglePin, delete
 }
 
 struct BarView: View {
@@ -18,7 +24,9 @@ struct BarView: View {
     let onPick: (Int) -> Void
     /// 카드가 처음 보일 때 (링크 미리보기 가져오기 등).
     let onCardAppear: (ClipItem) -> Void
+    /// 검색어나 전체/고정 탭이 바뀌었을 때.
     let onQueryChange: () -> Void
+    let onAction: (CardAction, ClipItem) -> Void
 
     @FocusState private var searchFocused: Bool
 
@@ -29,12 +37,20 @@ struct BarView: View {
                 TextField("검색", text: $model.query)
                     .textFieldStyle(.plain)
                     .focused($searchFocused)
+                Picker("보기", selection: $model.pinnedOnly) {
+                    Text("전체").tag(false)
+                    Text("고정").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
             cardList
         }
         .onChange(of: model.query) { onQueryChange() }
+        .onChange(of: model.pinnedOnly) { onQueryChange() }
         .onChange(of: model.showCount) { searchFocused = true }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
@@ -57,7 +73,8 @@ struct BarView: View {
         }
         .overlay {
             if model.items.isEmpty {
-                Text(model.query.isEmpty ? "복사한 항목이 없습니다" : "검색 결과가 없습니다").foregroundStyle(.secondary)
+                Text(!model.query.isEmpty ? "검색 결과가 없습니다" : model.pinnedOnly ? "고정한 항목이 없습니다" : "복사한 항목이 없습니다")
+                    .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -69,6 +86,11 @@ struct BarView: View {
                 .id(item.persistentModelID)
                 .onTapGesture { onPick(index) }
                 .onAppear { onCardAppear(item) }
+                .contextMenu {
+                    Button(item.isPinned ? "고정 해제 (⌘P)" : "고정 (⌘P)") { onAction(.togglePin, item) }
+                    Divider()
+                    Button("삭제 (⌫)", role: .destructive) { onAction(.delete, item) }
+                }
         }
     }
 }
@@ -79,7 +101,10 @@ private struct ClipCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(spacing: 4) {
+                if item.isPinned {
+                    Image(systemName: "pin.fill").foregroundStyle(.orange)
+                }
                 Text(appName ?? "알 수 없는 앱")
                 Spacer()
                 Text(kindLabel)

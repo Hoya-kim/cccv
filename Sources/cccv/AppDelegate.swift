@@ -38,6 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onQueryChange: { [weak self] in
                 self?.model.selection = 0
                 self?.reloadItems()
+            },
+            onAction: { [weak self] action, item in
+                self?.perform(action, on: item)
             }
         ))
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
@@ -89,7 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func reloadItems() {
         do {
-            model.items = try store.search(model.query)
+            model.items = try store.search(model.query, pinnedOnly: model.pinnedOnly)
+            model.selection = min(model.selection, max(model.items.count - 1, 0))
         } catch {
             NSLog("cccv: 불러오기 실패 %@", String(describing: error))
         }
@@ -171,13 +175,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func show() {
         model.query = ""
+        model.pinnedOnly = false
         model.selection = 0
         model.showCount += 1
         panel.show(at: model.position)
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let keyCode = Int(event.keyCode)
             let shift = event.modifierFlags.contains(.shift)
-            let handled = MainActor.assumeIsolated { self?.handleKey(keyCode, shift: shift) ?? false }
+            let command = event.modifierFlags.contains(.command)
+            let handled = MainActor.assumeIsolated { self?.handleKey(keyCode, shift: shift, command: command) ?? false }
             return handled ? nil : event
         }
     }
@@ -190,12 +196,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// 처리한 키면 true (이벤트 소비). 그 외 키는 검색창으로 간다.
-    private func handleKey(_ keyCode: Int, shift: Bool) -> Bool {
+    private func handleKey(_ keyCode: Int, shift: Bool, command: Bool) -> Bool {
         // 한글 등 조합 중이면 Return·방향키는 입력기 몫이다.
         if (panel.firstResponder as? NSTextView)?.hasMarkedText() == true { return false }
+        let selected = model.items.indices.contains(model.selection) ? model.items[model.selection] : nil
+
+        if command {
+            switch keyCode {
+            case kVK_LeftArrow, kVK_RightArrow:
+                model.pinnedOnly = keyCode == kVK_RightArrow
+            case kVK_ANSI_P:
+                guard let selected else { return true }
+                perform(.togglePin, on: selected)
+            case kVK_ANSI_Z where model.query.isEmpty && lastDeleted != nil:
+                restoreLastDeleted()
+            default:
+                return false // ⌘C·⌘V·⌘A 등은 검색창 편집으로
+            }
+            return true
+        }
+
         // 바 방향에 맞는 방향키만 쓴다 (가로 ←→, 세로 ↑↓).
         let horizontal = model.position.isHorizontal
         switch keyCode {
+        // 검색어가 있으면 ⌫ 는 글자 지우기. 비어 있을 때만 선택 항목 삭제.
+        case kVK_Delete where model.query.isEmpty:
+            guard let selected else { return true }
+            perform(.delete, on: selected)
         case horizontal ? kVK_LeftArrow : kVK_UpArrow:
             model.selection = max(model.selection - 1, 0)
         case horizontal ? kVK_RightArrow : kVK_DownArrow:
@@ -209,6 +236,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return false
         }
         return true
+    }
+
+    // ponytail: 되돌리기는 마지막 삭제 1건만. 여러 단계가 필요해지면 스택으로.
+    private var lastDeleted: ClipStore.DeletedClip?
+
+    private func perform(_ action: CardAction, on item: ClipItem) {
+        do {
+            switch action {
+            case .togglePin:
+                item.isPinned.toggle()
+                try store.save()
+            case .delete:
+                lastDeleted = try store.delete(item)
+            }
+        } catch {
+            NSLog("cccv: 항목 작업 실패 %@", String(describing: error))
+        }
+        reloadItems()
+    }
+
+    private func restoreLastDeleted() {
+        guard let lastDeleted else { return }
+        do {
+            try store.restore(lastDeleted)
+            self.lastDeleted = nil
+        } catch {
+            NSLog("cccv: 되돌리기 실패 %@", String(describing: error))
+        }
+        reloadItems()
     }
 
     private func pick(_ index: Int, plainText: Bool = false) {

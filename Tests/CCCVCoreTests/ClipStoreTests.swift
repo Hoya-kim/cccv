@@ -77,6 +77,45 @@ private func text(_ s: String) -> ClipContent { ClipContent(kind: .text, text: s
     #expect(try store.purge(olderThan: cutoff) == 0)
 }
 
+@MainActor
+@Test func pinnedItemsSurvivePurgeAndFilter() throws {
+    let store = try ClipStore(url: nil)
+    let now = Date()
+    try store.add(text("old pinned"), sourceBundleID: nil, at: now - 40 * 86400)
+    try store.add(text("old"), sourceBundleID: nil, at: now - 40 * 86400 + 1)
+    try store.add(text("new"), sourceBundleID: nil, at: now)
+    try store.recent().first { $0.text == "old pinned" }?.isPinned = true
+    try store.save()
+
+    let cutoff = now - 30 * 86400
+    #expect(try store.count(olderThan: cutoff) == 1)
+    #expect(try store.purge(olderThan: cutoff) == 1)
+    #expect(try store.recent().map(\.text) == ["new", "old pinned"])
+    #expect(try store.search("", pinnedOnly: true).map(\.text) == ["old pinned"])
+    #expect(try store.search("new", pinnedOnly: true).isEmpty)
+}
+
+@MainActor
+@Test func deleteAndRestoreKeepsEverything() throws {
+    let store = try ClipStore(url: nil)
+    let at = Date(timeIntervalSince1970: 1000)
+    try store.add(ClipContent(kind: .link, text: "https://example.com"), sourceBundleID: "app.one", at: at)
+    let item = try #require(try store.recent().first)
+    item.isPinned = true
+    item.title = "예시"
+    item.linkTitle = "Example"
+    try store.save()
+
+    let deleted = try store.delete(item)
+    #expect(try store.recent().isEmpty)
+    try store.restore(deleted)
+    let restored = try #require(try store.recent().first)
+    #expect(restored.text == "https://example.com" && restored.kind == .link)
+    #expect(restored.sourceBundleID == "app.one" && restored.copiedAt == at)
+    #expect(restored.isPinned && restored.title == "예시" && restored.linkTitle == "Example")
+    #expect(try store.search("예시").count == 1) // 이름도 검색된다
+}
+
 @Test func excludedPatternMatchesWholeTrimmedText() {
     let otp = [#"^\d{6}$"#]
     #expect(PasteboardRules.matchesExcludedPattern("123456", patterns: otp))

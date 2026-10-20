@@ -15,6 +15,10 @@ public final class ClipItem {
     public var linkTitle: String?
     @Attribute(.externalStorage) public var linkImage: Data?
     public var linkFetchedAt: Date?
+    /// 고정 항목은 보존 기간이 지나도 지우지 않는다.
+    public var isPinned: Bool = false
+    /// 사용자가 붙인 이름 (검색 대상).
+    public var title: String?
 
     public var kind: ClipKind { ClipKind(rawValue: kindRaw) ?? .text }
 
@@ -73,21 +77,27 @@ public final class ClipStore {
     }
 
     // ponytail: 바에는 최근 200개만 올린다. 전체 탐색은 검색(M1 4단계)에서 저장소 쿼리로.
-    public func recent(limit: Int = 200) throws -> [ClipItem] {
-        var descriptor = FetchDescriptor<ClipItem>(sortBy: [SortDescriptor(\.copiedAt, order: .reverse)])
+    public func recent(limit: Int = 200, pinnedOnly: Bool = false) throws -> [ClipItem] {
+        var descriptor = FetchDescriptor<ClipItem>(
+            predicate: #Predicate { !pinnedOnly || $0.isPinned },
+            sortBy: [SortDescriptor(\.copiedAt, order: .reverse)]
+        )
         descriptor.fetchLimit = limit
         return try context.fetch(descriptor)
     }
 
-    /// 본문과 링크 제목에서 대소문자·발음 기호 무시하고 찾는다. 최신순.
+    /// 본문·링크 제목·사용자 이름에서 대소문자·발음 기호 무시하고 찾는다. 최신순.
     // ponytail: 키 입력마다 LIKE 스캔. 수만 건에서 느려지면 SQLite FTS5 로.
-    public func search(_ query: String, limit: Int = 200) throws -> [ClipItem] {
+    public func search(_ query: String, pinnedOnly: Bool = false, limit: Int = 200) throws -> [ClipItem] {
         let query = query.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return try recent(limit: limit) }
+        guard !query.isEmpty else { return try recent(limit: limit, pinnedOnly: pinnedOnly) }
         var descriptor = FetchDescriptor<ClipItem>(
             predicate: #Predicate {
-                $0.text.localizedStandardContains(query)
-                    || ($0.linkTitle.flatMap { $0.localizedStandardContains(query) } ?? false)
+                (!pinnedOnly || $0.isPinned) && (
+                    $0.text.localizedStandardContains(query)
+                        || ($0.linkTitle.flatMap { $0.localizedStandardContains(query) } ?? false)
+                        || ($0.title.flatMap { $0.localizedStandardContains(query) } ?? false)
+                )
             },
             sortBy: [SortDescriptor(\.copiedAt, order: .reverse)]
         )
@@ -95,20 +105,55 @@ public final class ClipStore {
         return try context.fetch(descriptor)
     }
 
-    /// 보존 기간 정리 전에 삭제 대상 건수를 보여 주기 위한 것.
+    /// 보존 기간 정리 전에 삭제 대상 건수를 보여 주기 위한 것. 고정 항목은 세지 않는다.
     public func count(olderThan date: Date) throws -> Int {
-        try context.fetchCount(FetchDescriptor(predicate: #Predicate<ClipItem> { $0.copiedAt < date }))
+        try context.fetchCount(FetchDescriptor(predicate: #Predicate<ClipItem> { $0.copiedAt < date && !$0.isPinned }))
     }
 
-    /// date 이전에 복사한 항목을 지운다. 지운 건수를 돌려준다.
+    /// date 이전에 복사한 항목을 지운다 (고정 항목 제외). 지운 건수를 돌려준다.
     // ponytail: SQLite 파일은 줄지 않고 빈 페이지를 재사용한다 (원본 파일은 externalStorage 라 함께 지워진다). 필요하면 VACUUM.
     @discardableResult
     public func purge(olderThan date: Date) throws -> Int {
-        let old = try context.fetch(FetchDescriptor(predicate: #Predicate<ClipItem> { $0.copiedAt < date }))
+        let old = try context.fetch(FetchDescriptor(predicate: #Predicate<ClipItem> { $0.copiedAt < date && !$0.isPinned }))
         guard !old.isEmpty else { return 0 }
         old.forEach(context.delete)
         try context.save()
         return old.count
+    }
+
+    /// 사용자가 지운 항목. 되돌리기(⌘Z)를 위해 필드를 전부 값으로 들고 있는다.
+    public struct DeletedClip: Sendable {
+        let content: ClipContent
+        let sourceBundleID: String?
+        let copiedAt: Date
+        let linkTitle: String?
+        let linkImage: Data?
+        let linkFetchedAt: Date?
+        let isPinned: Bool
+        let title: String?
+    }
+
+    public func delete(_ item: ClipItem) throws -> DeletedClip {
+        let deleted = DeletedClip(
+            content: ClipContent(kind: item.kind, text: item.text, payload: item.payload, payloadType: item.payloadType),
+            sourceBundleID: item.sourceBundleID, copiedAt: item.copiedAt,
+            linkTitle: item.linkTitle, linkImage: item.linkImage, linkFetchedAt: item.linkFetchedAt,
+            isPinned: item.isPinned, title: item.title
+        )
+        context.delete(item)
+        try context.save()
+        return deleted
+    }
+
+    public func restore(_ deleted: DeletedClip) throws {
+        let item = ClipItem(content: deleted.content, sourceBundleID: deleted.sourceBundleID, copiedAt: deleted.copiedAt)
+        item.linkTitle = deleted.linkTitle
+        item.linkImage = deleted.linkImage
+        item.linkFetchedAt = deleted.linkFetchedAt
+        item.isPinned = deleted.isPinned
+        item.title = deleted.title
+        context.insert(item)
+        try context.save()
     }
 
     /// 해시 컬럼이 생기기 전에 저장된 레코드를 채운다. 없으면 아무것도 하지 않는다.
