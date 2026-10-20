@@ -5,11 +5,8 @@ import CCCVCore
 @MainActor
 enum Paster {
     /// 클립보드에 쓰고 ⌘V 를 합성한다. 접근성 권한이 없으면 클립보드 복사까지만 한다.
-    static func paste(_ text: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-        pasteboard.setData(Data(), forType: .init(PasteboardRules.ownType))
+    static func paste(_ item: ClipItem) {
+        write(item, to: .general)
 
         guard AXIsProcessTrusted() else { return }
 
@@ -22,5 +19,26 @@ enum Paster {
                 event?.post(tap: .cghidEventTap)
             }
         }
+    }
+
+    private static func write(_ item: ClipItem, to pasteboard: NSPasteboard) {
+        pasteboard.clearContents()
+        switch item.kind {
+        case .file:
+            let urls = item.text.split(separator: "\n").map { NSURL(fileURLWithPath: String($0)) }
+            pasteboard.writeObjects(urls)
+        case .image:
+            if let payload = item.payload, let type = item.payloadType {
+                pasteboard.setData(payload, forType: .init(type))
+            }
+        case .richText:
+            if let payload = item.payload, let type = item.payloadType {
+                pasteboard.setData(payload, forType: .init(type))
+            }
+            pasteboard.setString(item.text, forType: .string)
+        case .text, .link, .color:
+            pasteboard.setString(item.text, forType: .string)
+        }
+        pasteboard.setData(Data(), forType: .init(PasteboardRules.ownType))
     }
 }

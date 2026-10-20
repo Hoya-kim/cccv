@@ -29,10 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.hide() }
         }
 
-        watcher.onNewText = { [weak self] text, source in
+        watcher.onNewContent = { [weak self] content, source in
             guard let self else { return }
             do {
-                try store.add(text: text, sourceBundleID: source)
+                try store.add(content, sourceBundleID: source)
             } catch {
                 NSLog("cccv: 저장 실패 %@", String(describing: error))
             }
@@ -117,8 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func pick(_ index: Int) {
         guard model.items.indices.contains(index) else { return }
-        let text = model.items[index].text
+        let item = model.items[index]
         hide()
-        Paster.paste(text)
+        Paster.paste(item)
     }
 }

@@ -4,11 +4,22 @@ import SwiftData
 @Model
 public final class ClipItem {
     public var text: String
+    // 기본값은 M1 ① 스키마(text 만 있던 레코드)에서 경량 마이그레이션하기 위해 필요하다.
+    public var kindRaw: String = ClipKind.text.rawValue
+    @Attribute(.externalStorage) public var payload: Data?
+    public var payloadType: String?
+    public var contentHash: String = ""
     public var sourceBundleID: String?
     public var copiedAt: Date
 
-    public init(text: String, sourceBundleID: String?, copiedAt: Date) {
-        self.text = text
+    public var kind: ClipKind { ClipKind(rawValue: kindRaw) ?? .text }
+
+    public init(content: ClipContent, sourceBundleID: String?, copiedAt: Date) {
+        text = content.text
+        kindRaw = content.kind.rawValue
+        payload = content.payload
+        payloadType = content.payloadType
+        contentHash = content.contentHash
         self.sourceBundleID = sourceBundleID
         self.copiedAt = copiedAt
     }
@@ -34,18 +45,20 @@ public final class ClipStore {
             config = ModelConfiguration(isStoredInMemoryOnly: true)
         }
         container = try ModelContainer(for: ClipItem.self, configurations: config)
+        try backfillHashes()
     }
 
-    /// 같은 텍스트가 이미 있으면 새로 만들지 않고 맨 앞으로 올린다.
+    /// 같은 내용이 이미 있으면 새로 만들지 않고 맨 앞으로 올린다.
     /// sourceBundleID 가 nil 이면 (출처를 모를 때) 기존 출처를 덮어쓰지 않는다.
-    public func add(text: String, sourceBundleID: String?, at date: Date = Date()) throws {
-        guard !text.isEmpty else { return }
-        let existing = try context.fetch(FetchDescriptor(predicate: #Predicate<ClipItem> { $0.text == text })).first
+    public func add(_ content: ClipContent, sourceBundleID: String?, at date: Date = Date()) throws {
+        guard !content.isEmpty else { return }
+        let hash = content.contentHash
+        let existing = try context.fetch(FetchDescriptor(predicate: #Predicate<ClipItem> { $0.contentHash == hash })).first
         if let existing {
             existing.copiedAt = date
             if let sourceBundleID { existing.sourceBundleID = sourceBundleID }
         } else {
-            context.insert(ClipItem(text: text, sourceBundleID: sourceBundleID, copiedAt: date))
+            context.insert(ClipItem(content: content, sourceBundleID: sourceBundleID, copiedAt: date))
         }
         try context.save()
     }
@@ -55,5 +68,15 @@ public final class ClipStore {
         var descriptor = FetchDescriptor<ClipItem>(sortBy: [SortDescriptor(\.copiedAt, order: .reverse)])
         descriptor.fetchLimit = limit
         return try context.fetch(descriptor)
+    }
+
+    /// 해시 컬럼이 생기기 전에 저장된 레코드를 채운다. 없으면 아무것도 하지 않는다.
+    private func backfillHashes() throws {
+        let missing = try context.fetch(FetchDescriptor(predicate: #Predicate<ClipItem> { $0.contentHash == "" }))
+        guard !missing.isEmpty else { return }
+        for item in missing {
+            item.contentHash = ClipContent.hash(kind: item.kind, text: item.text, payload: item.payload)
+        }
+        try context.save()
     }
 }
