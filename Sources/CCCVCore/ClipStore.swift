@@ -19,8 +19,16 @@ public final class ClipItem {
     public var isPinned: Bool = false
     /// 사용자가 붙인 이름 (검색 대상).
     public var title: String?
+    /// 이미지 속 글자 (OCR, 검색 대상). ocrProcessed 가 true 면 시도한 것 — 실패해도 다시 하지 않는다.
+    public var ocrText: String?
+    public var ocrProcessed: Bool = false
 
     public var kind: ClipKind { ClipKind(rawValue: kindRaw) ?? .text }
+
+    /// 검색어가 본문·이름·링크 제목·이미지 속 글자 중 하나에 들어 있는지.
+    func matches(_ query: String) -> Bool {
+        [text, title, linkTitle, ocrText].contains { $0?.localizedStandardContains(query) == true }
+    }
 
     public init(content: ClipContent, sourceBundleID: String?, copiedAt: Date) {
         text = content.text
@@ -81,6 +89,31 @@ public final class ClipStore {
         try search("", limit: limit)
     }
 
+    /// 아직 글자 인식을 하지 않은 이미지 하나 (최신 것부터). 원본이 없으면 처리한 것으로 표시하고 다음으로.
+    public func nextImageForOCR() throws -> (id: PersistentIdentifier, data: Data)? {
+        let image = ClipKind.image.rawValue
+        var descriptor = FetchDescriptor<ClipItem>(
+            predicate: #Predicate { $0.kindRaw == image && !$0.ocrProcessed },
+            sortBy: [SortDescriptor(\.copiedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        while let item = try context.fetch(descriptor).first {
+            if let data = item.payload { return (item.persistentModelID, data) }
+            item.ocrProcessed = true
+            try context.save()
+        }
+        return nil
+    }
+
+    /// 인식 결과 저장. 그 사이 항목이 지워졌으면 아무것도 하지 않는다.
+    public func setOCR(_ id: PersistentIdentifier, text: String?) throws {
+        let descriptor = FetchDescriptor<ClipItem>(predicate: #Predicate { $0.persistentModelID == id })
+        guard let item = try context.fetch(descriptor).first else { return }
+        item.ocrText = text.flatMap { $0.isEmpty ? nil : $0 }
+        item.ocrProcessed = true
+        try context.save()
+    }
+
     /// 필터 드롭다운에 보여 줄 출처 앱 목록 (기록에 있는 것만).
     // ponytail: 전 레코드 스캔. 보존 기간이 있어 규모가 작다.
     public func sourceBundleIDs() throws -> [String] {
@@ -89,11 +122,11 @@ public final class ClipStore {
         return Set(try context.fetch(descriptor).compactMap(\.sourceBundleID)).sorted()
     }
 
-    /// 본문·링크 제목·사용자 이름에서 대소문자·발음 기호 무시하고 찾는다. 최신순.
-    // ponytail: 키 입력마다 LIKE 스캔. 수만 건에서 느려지면 SQLite FTS5 로.
+    /// 본문·링크 제목·사용자 이름·이미지 속 글자에서 대소문자·발음 기호 무시하고 찾는다. 최신순.
+    /// 필터(고정·종류·앱)는 DB 에서, 검색어는 메모리에서 맞춘다 — 한 #Predicate 에 다 넣으면 컴파일러가 타입 검사를 못 끝낸다.
+    // ponytail: 검색어가 있으면 필터에 걸린 전체를 읽어 스캔. 보존 기간으로 규모가 작다. 수만 건이면 SQLite FTS5 로.
     public func search(_ query: String, filter: ClipFilter = ClipFilter(), limit: Int = 200) throws -> [ClipItem] {
         let query = query.trimmingCharacters(in: .whitespaces)
-        let anyText = query.isEmpty
         let pinnedOnly = filter.pinnedOnly
         let anyKind = filter.kind == nil
         let kindRaw = filter.kind?.rawValue ?? ""
@@ -104,15 +137,14 @@ public final class ClipStore {
                 (!pinnedOnly || $0.isPinned)
                     && (anyKind || $0.kindRaw == kindRaw)
                     && (anyApp || $0.sourceBundleID == appID)
-                    && (anyText
-                        || $0.text.localizedStandardContains(query)
-                        || ($0.linkTitle.flatMap { $0.localizedStandardContains(query) } ?? false)
-                        || ($0.title.flatMap { $0.localizedStandardContains(query) } ?? false))
             },
             sortBy: [SortDescriptor(\.copiedAt, order: .reverse)]
         )
-        descriptor.fetchLimit = limit
-        return try context.fetch(descriptor)
+        guard !query.isEmpty else {
+            descriptor.fetchLimit = limit
+            return try context.fetch(descriptor)
+        }
+        return Array(try context.fetch(descriptor).lazy.filter { $0.matches(query) }.prefix(limit))
     }
 
     /// 보존 기간 정리 전에 삭제 대상 건수를 보여 주기 위한 것. 고정 항목은 세지 않는다.

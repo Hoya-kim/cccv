@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let watcher = ClipboardWatcher()
     private let panel = BarPanel()
     private let quickLook = QuickLook()
+    private var ocr: OCRQueue!
     private var statusItem: NSStatusItem?
     private var hotKey: HotKey?
     private var keyMonitor: Any?
@@ -73,7 +74,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSLog("cccv: 저장 실패 %@", String(describing: error))
             }
             reloadItems()
+            if content.kind == .image { ocr.process() }
         }
+        ocr = OCRQueue(store: store)
+        ocr.onUpdate = { [weak self] in
+            // 검색 중일 때만 결과가 바뀔 수 있다
+            guard let self, !model.query.isEmpty else { return }
+            reloadItems()
+        }
+        ocr.process() // 예전에 저장된 이미지도 한 번씩
         reloadItems()
         watcher.start()
 

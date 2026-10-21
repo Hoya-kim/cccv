@@ -112,6 +112,36 @@ private func text(_ s: String) -> ClipContent { ClipContent(kind: .text, text: s
 }
 
 @MainActor
+@Test func ocrQueueAndSearch() throws {
+    let store = try ClipStore(url: nil)
+    let start = Date()
+    try store.add(ClipContent(kind: .image, text: "", payload: Data([1]), payloadType: "public.png"), sourceBundleID: nil, at: start)
+    try store.add(ClipContent(kind: .image, text: "", payload: Data([2]), payloadType: "public.png"), sourceBundleID: nil, at: start + 1)
+    try store.add(text("not an image"), sourceBundleID: nil, at: start + 2)
+
+    // 최신 이미지부터, 텍스트 항목은 대상이 아니다
+    let first = try #require(try store.nextImageForOCR())
+    #expect(first.data == Data([2]))
+    try store.setOCR(first.id, text: "배포 체크리스트")
+    let second = try #require(try store.nextImageForOCR())
+    #expect(second.data == Data([1]))
+    try store.setOCR(second.id, text: "") // 글자가 없어도 처리 완료
+    #expect(try store.nextImageForOCR() == nil)
+
+    #expect(try store.search("체크리스트").map(\.payload) == [Data([2])])
+}
+
+@MainActor
+@Test func ocrResultForDeletedItemIsIgnored() throws {
+    let store = try ClipStore(url: nil)
+    try store.add(ClipContent(kind: .image, text: "", payload: Data([1]), payloadType: "public.png"), sourceBundleID: nil)
+    let job = try #require(try store.nextImageForOCR())
+    _ = try store.delete(try #require(try store.recent().first))
+    try store.setOCR(job.id, text: "late") // 크래시 없이 무시
+    #expect(try store.recent().isEmpty)
+}
+
+@MainActor
 @Test func deleteAndRestoreKeepsEverything() throws {
     let store = try ClipStore(url: nil)
     let at = Date(timeIntervalSince1970: 1000)
