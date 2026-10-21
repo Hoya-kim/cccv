@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onQueryChange: { [weak self] in
                 self?.model.selection = 0
+                self?.browsingResults = false // 다시 입력 중 → Space 는 띄어쓰기
                 self?.reloadItems()
             },
             onAction: { [weak self] action, item in
@@ -245,6 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func show() {
         model.query = ""
+        browsingResults = false
         model.filter = ClipFilter()
         model.sourceApps = (try? store.sourceBundleIDs()) ?? []
         model.editingItem = nil // 편집 중에 바가 닫혔다면 버린다
@@ -329,6 +331,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 perform(actions[keyCode]!, on: selected)
             case kVK_ANSI_Z where model.query.isEmpty && lastDeleted != nil:
                 restoreLastDeleted()
+            case kVK_ANSI_Y:
+                // ⌘Y (Finder 의 Quick Look 과 같은 키) — 검색 중에도 미리보기를 열고 닫는다.
+                if quickLook.isVisible {
+                    quickLook.close()
+                } else if let selected {
+                    quickLook.show(selected)
+                }
             case _ where digits.contains(keyCode):
                 // ⌘1–9 번호 붙여넣기 (⇧⌘1–9 는 서식 없이). 보이는 순서 기준.
                 pick(digits.firstIndex(of: keyCode)!, plainText: shift)
@@ -351,14 +360,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case kVK_Delete where model.query.isEmpty:
             guard let selected else { return true }
             perform(.delete, on: selected)
-        // 검색어가 있으면 Space 는 띄어쓰기. 비어 있을 때만 미리보기.
-        case kVK_Space where model.query.isEmpty:
+        // Space: 검색어가 없거나, 방향키로 카드를 고르는 중이면 미리보기. 검색어를 입력하는 중이면 띄어쓰기.
+        case kVK_Space where model.query.isEmpty || browsingResults:
             guard let selected else { return true }
             quickLook.show(selected)
         case horizontal ? kVK_LeftArrow : kVK_UpArrow:
+            browsingResults = true
             model.selection = max(model.selection - 1, 0)
             quickLook.follow(model.items.indices.contains(model.selection) ? model.items[model.selection] : nil)
         case horizontal ? kVK_RightArrow : kVK_DownArrow:
+            browsingResults = true
             model.selection = min(model.selection + 1, max(model.items.count - 1, 0))
             quickLook.follow(model.items.indices.contains(model.selection) ? model.items[model.selection] : nil)
         case kVK_Return, kVK_ANSI_KeypadEnter:
@@ -371,6 +382,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return true
     }
+
+    /// 검색어를 입력한 뒤 방향키로 카드를 고르기 시작했는지. 그동안 Space 는 미리보기, 글자를 치면 다시 false.
+    private var browsingResults = false
 
     private static let digitKeys = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5, kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
 
