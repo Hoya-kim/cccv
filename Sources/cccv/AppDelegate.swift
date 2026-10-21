@@ -29,6 +29,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.purgeExpired() }
         }
+        // 민감정보 항목은 분 단위로 만료되므로 더 자주 본다.
+        purgeSensitive()
+        Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.purgeSensitive() }
+        }
         setUpStatusItem()
         setUpMainMenu()
         quickLook.parent = panel
@@ -66,10 +71,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.hide() }
         }
 
-        watcher.onNewContent = { [weak self] content, source in
+        watcher.onNewContent = { [weak self] content, source, expiresAt in
             guard let self else { return }
             do {
-                try store.add(content, sourceBundleID: source)
+                try store.add(content, sourceBundleID: source, expiresAt: expiresAt)
             } catch {
                 NSLog("cccv: 저장 실패 %@", String(describing: error))
             }
@@ -150,6 +155,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showFromMenu() {
         show()
+    }
+
+    /// 민감정보 패턴으로 만료 시각이 정해진 항목을 지운다. 실행 시·20초마다.
+    private func purgeSensitive() {
+        do {
+            guard try store.purgeExpired() > 0 else { return }
+            reloadItems()
+            quickLook.close() // 미리보던 항목이 지워졌을 수 있다
+        } catch {
+            NSLog("cccv: 민감정보 정리 실패 %@", String(describing: error))
+        }
     }
 
     /// 보존 기간이 지난 항목을 지운다. 실행 시·1시간마다·보존 기간 변경 시.
@@ -369,6 +385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             case .togglePin:
                 item.isPinned.toggle()
+                if item.isPinned { item.expiresAt = nil } // 고정하면 민감정보 자동 삭제가 풀린다
                 try store.save()
             case .delete:
                 lastDeleted = try store.delete(item)

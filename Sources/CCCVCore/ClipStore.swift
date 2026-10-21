@@ -22,6 +22,8 @@ public final class ClipItem {
     /// 이미지 속 글자 (OCR, 검색 대상). ocrProcessed 가 true 면 시도한 것 — 실패해도 다시 하지 않는다.
     public var ocrText: String?
     public var ocrProcessed: Bool = false
+    /// 민감정보 패턴에 걸려 이 시각에 지워질 항목. nil 이면 보존 기간만 따른다. 고정하면 nil 로 풀린다.
+    public var expiresAt: Date?
 
     public var kind: ClipKind { ClipKind(rawValue: kindRaw) ?? .text }
 
@@ -66,17 +68,33 @@ public final class ClipStore {
 
     /// 같은 내용이 이미 있으면 새로 만들지 않고 맨 앞으로 올린다.
     /// sourceBundleID 가 nil 이면 (출처를 모를 때) 기존 출처를 덮어쓰지 않는다.
-    public func add(_ content: ClipContent, sourceBundleID: String?, at date: Date = Date()) throws {
+    /// expiresAt 이 있으면 그 시각에 지워지는 민감정보 항목으로 저장한다 (고정된 기존 항목은 제외).
+    public func add(_ content: ClipContent, sourceBundleID: String?, at date: Date = Date(), expiresAt: Date? = nil) throws {
         guard !content.isEmpty else { return }
         let hash = content.contentHash
         let existing = try context.fetch(FetchDescriptor(predicate: #Predicate<ClipItem> { $0.contentHash == hash })).first
         if let existing {
             existing.copiedAt = date
             if let sourceBundleID { existing.sourceBundleID = sourceBundleID }
+            if let expiresAt, !existing.isPinned { existing.expiresAt = expiresAt }
         } else {
-            context.insert(ClipItem(content: content, sourceBundleID: sourceBundleID, copiedAt: date))
+            let item = ClipItem(content: content, sourceBundleID: sourceBundleID, copiedAt: date)
+            item.expiresAt = expiresAt
+            context.insert(item)
         }
         try context.save()
+    }
+
+    /// 만료 시각이 지난 민감정보 항목을 지운다 (고정 항목 제외). 지운 건수를 돌려준다.
+    @discardableResult
+    public func purgeExpired(now: Date = Date()) throws -> Int {
+        let expired = try context.fetch(FetchDescriptor(predicate: #Predicate<ClipItem> { item in
+            item.expiresAt.flatMap { $0 <= now } ?? false
+        })).filter { !$0.isPinned }
+        guard !expired.isEmpty else { return 0 }
+        expired.forEach(context.delete)
+        try context.save()
+        return expired.count
     }
 
     /// 조회한 모델 인스턴스를 직접 고친 뒤 저장할 때.

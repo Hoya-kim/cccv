@@ -339,8 +339,10 @@ private struct ClipCard: View {
             if let title = item.title {
                 Text(title).font(.system(size: size(13), weight: .bold)).lineLimit(2)
             }
-            preview
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            Group {
+                if let expiresAt = item.expiresAt { masked(until: expiresAt) } else { preview }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             HStack {
                 TimelineView(.everyMinute) { context in
                     Text(RelativeTime.label(since: item.copiedAt, now: context.date))
@@ -357,6 +359,19 @@ private struct ClipCard: View {
         .overlay {
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 3)
+        }
+    }
+
+    /// 민감정보 패턴에 걸린 항목은 내용을 가린다. 붙여넣기·Space 미리보기는 그대로 된다.
+    private func masked(until expiresAt: Date) -> some View {
+        VStack(alignment: .leading, spacing: size(6)) {
+            Label("민감정보", systemImage: "lock.fill").font(.system(size: size(12), weight: .semibold))
+            Text("••••••••••••").font(.system(size: size(14), design: .monospaced)).foregroundStyle(.secondary)
+            TimelineView(.periodic(from: .now, by: 10)) { context in
+                let minutes = Int((expiresAt.timeIntervalSince(context.date) / 60).rounded(.up))
+                Text(minutes <= 1 ? "곧 삭제됩니다" : "\(minutes)분 뒤 삭제")
+                    .font(.system(size: size(11))).foregroundStyle(.orange)
+            }
         }
     }
 

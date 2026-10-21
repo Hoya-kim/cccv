@@ -85,9 +85,11 @@ enum AppSettings {
     static var excludedPatterns: [ExcludedPattern] {
         get {
             let defaults = UserDefaults.standard
-            if let rules = defaults.array(forKey: patternsKey) as? [[String: String]] {
+            if let rules = defaults.array(forKey: patternsKey) as? [[String: Any]] {
                 return rules.compactMap { rule in
-                    rule["pattern"].map { ExcludedPattern(pattern: $0, memo: rule["memo"] ?? "") }
+                    (rule["pattern"] as? String).map {
+                        ExcludedPattern(pattern: $0, memo: rule["memo"] as? String ?? "", expireMinutes: rule["expireMinutes"] as? Int)
+                    }
                 }
             }
             // 메모가 생기기 전 형식([String])에서 옮겨 온다.
@@ -97,7 +99,11 @@ enum AppSettings {
             return [otpPattern]
         }
         set {
-            UserDefaults.standard.set(newValue.map { ["pattern": $0.pattern, "memo": $0.memo] }, forKey: patternsKey)
+            UserDefaults.standard.set(newValue.map { rule -> [String: Any] in
+                var dict: [String: Any] = ["pattern": rule.pattern, "memo": rule.memo]
+                if let minutes = rule.expireMinutes { dict["expireMinutes"] = minutes }
+                return dict
+            }, forKey: patternsKey)
         }
     }
 }
@@ -105,6 +111,10 @@ enum AppSettings {
 struct ExcludedPattern: Hashable {
     var pattern: String
     var memo: String
+    /// nil 이면 기록하지 않는다. 값이 있으면 기록하되 그 분 뒤에 지운다 (카드에선 가림).
+    var expireMinutes: Int?
+
+    static let actions: [(minutes: Int?, label: String)] = [(nil, "기록 안 함"), (1, "1분 뒤 삭제"), (5, "5분 뒤 삭제"), (30, "30분 뒤 삭제")]
 }
 
 struct SettingsView: View {
@@ -130,9 +140,10 @@ struct SettingsView: View {
     @State private var excluded = AppSettings.excludedBundleIDs
     @State private var plainTextApps = AppSettings.plainTextBundleIDs
     @State private var patterns = AppSettings.excludedPatterns
-    @State private var patternSelection: ExcludedPattern?
+    @State private var patternSelection: String?
     @State private var newPattern = ""
     @State private var newMemo = ""
+    @State private var newExpireMinutes: Int?
 
     var body: some View {
         TabView {
@@ -353,14 +364,27 @@ struct SettingsView: View {
             }
 
             Section {
-                List(patterns, id: \.self, selection: $patternSelection) { rule in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(rule.memo.isEmpty ? "메모 없음" : rule.memo)
-                            .foregroundStyle(rule.memo.isEmpty ? .secondary : .primary)
-                        Text(rule.pattern).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                List(patterns, id: \.pattern, selection: $patternSelection) { rule in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(rule.memo.isEmpty ? "메모 없음" : rule.memo)
+                                .foregroundStyle(rule.memo.isEmpty ? .secondary : .primary)
+                            Text(rule.pattern).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Picker("처리", selection: Binding(
+                            get: { rule.expireMinutes },
+                            set: { minutes in
+                                if let i = patterns.firstIndex(where: { $0.pattern == rule.pattern }) { patterns[i].expireMinutes = minutes }
+                            }
+                        )) {
+                            ForEach(ExcludedPattern.actions, id: \.label) { Text($0.label).tag($0.minutes) }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
                     }
                 }
-                .frame(minHeight: 100)
+                .frame(minHeight: 120)
                 // Form 안의 TextField 제목은 왼쪽 라벨로 빠져 입력칸이 안 보인다 → prompt 로 넣고 라벨은 숨긴다.
                 HStack {
                     TextField("정규식", text: $newPattern, prompt: Text("정규식 (예: ^\\d{6}$)"))
@@ -371,26 +395,42 @@ struct SettingsView: View {
                 }
                 .labelsHidden()
                 HStack {
+                    Picker("처리", selection: $newExpireMinutes) {
+                        ForEach(ExcludedPattern.actions, id: \.label) { Text($0.label).tag($0.minutes) }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
                     Button("패턴 추가", action: addPattern)
                         .disabled(!PasteboardRules.isValidPattern(newPattern))
                     Button("삭제") {
-                        patterns.removeAll { $0 == patternSelection }
+                        patterns.removeAll { $0.pattern == patternSelection }
                         patternSelection = nil
                     }
                     .disabled(patternSelection == nil)
+                    Spacer()
+                    Menu("추천 패턴") {
+                        ForEach(PasteboardRules.sensitivePresets, id: \.pattern) { preset in
+                            Button(preset.memo) {
+                                guard !patterns.contains(where: { $0.pattern == preset.pattern }) else { return }
+                                patterns.append(ExcludedPattern(pattern: preset.pattern, memo: preset.memo, expireMinutes: 5))
+                            }
+                            .disabled(patterns.contains { $0.pattern == preset.pattern })
+                        }
+                    }
+                    .fixedSize()
                 }
                 if !newPattern.isEmpty, !PasteboardRules.isValidPattern(newPattern) {
                     Text("올바른 정규식이 아닙니다.").font(.caption).foregroundStyle(.red)
                 }
             } header: {
-                Text("제외 패턴")
+                Text("제외·민감정보 패턴")
             } footer: {
-                Text("복사한 내용 전체(앞뒤 공백 제외)가 패턴과 일치하면 기록하지 않습니다.")
+                Text("복사한 내용 전체(앞뒤 공백 제외)가 패턴과 일치하면 기록하지 않거나, 기록하되 정한 시간 뒤에 지웁니다. 지워질 항목은 카드에서 내용을 가리고, 고정하면 지워지지 않습니다. 추천 패턴은 5분 뒤 삭제로 추가됩니다.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-        .frame(height: 720)
+        .frame(height: 760)
     }
 
     /// 지워질 항목이 있으면 건수를 보여 주고 확인받는다.
@@ -426,7 +466,7 @@ struct SettingsView: View {
 
     private func addPattern() {
         guard PasteboardRules.isValidPattern(newPattern), !patterns.contains(where: { $0.pattern == newPattern }) else { return }
-        patterns.append(ExcludedPattern(pattern: newPattern, memo: newMemo.trimmingCharacters(in: .whitespaces)))
+        patterns.append(ExcludedPattern(pattern: newPattern, memo: newMemo.trimmingCharacters(in: .whitespaces), expireMinutes: newExpireMinutes))
         newPattern = ""
         newMemo = ""
     }

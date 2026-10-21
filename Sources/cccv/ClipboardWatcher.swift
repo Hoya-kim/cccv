@@ -4,7 +4,8 @@ import CCCVCore
 /// NSPasteboard 에는 변경 알림이 없어서 changeCount 를 폴링한다.
 @MainActor
 final class ClipboardWatcher {
-    var onNewContent: (@MainActor (ClipContent, String?) -> Void)?
+    /// (내용, 출처 앱, 만료 시각 — 민감정보 패턴에 걸렸을 때)
+    var onNewContent: (@MainActor (ClipContent, String?, Date?) -> Void)?
     /// 일시정지 중 복사한 내용은 재개 후에도 기록하지 않는다 (changeCount 는 계속 따라간다).
     var isPaused = false
 
@@ -33,10 +34,15 @@ final class ClipboardWatcher {
         let source = isFirstRead ? nil : NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         // 내용을 읽기 전에 거른다 — 제외 앱의 데이터는 메모리에도 올리지 않는다.
         if let source, AppSettings.excludedBundleIDs.contains(source) { return }
-        guard let content = readContent(),
-              !PasteboardRules.matchesExcludedPattern(content.text, patterns: AppSettings.excludedPatterns.map(\.pattern))
-        else { return }
-        onNewContent?(content, source)
+        guard let content = readContent() else { return }
+        // 패턴에 걸리면 규칙대로: 기록 안 함, 또는 N분 뒤 지워지게 기록
+        let rules = AppSettings.excludedPatterns
+        var expiresAt: Date?
+        if let index = PasteboardRules.firstMatchingPattern(content.text, patterns: rules.map(\.pattern)) {
+            guard let minutes = rules[index].expireMinutes else { return }
+            expiresAt = Date().addingTimeInterval(Double(minutes) * 60)
+        }
+        onNewContent?(content, source, expiresAt)
     }
 
     private func readContent() -> ClipContent? {
