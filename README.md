@@ -32,7 +32,7 @@
 <p align="center"><img src="docs/images/transform.png" alt="⌘T 변환 목록과 결과 미리보기"></p>
 <p align="center"><sub>⌘T — 변환 목록과 결과 미리보기</sub></p>
 
-## 설치 (공유받은 zip)
+## 설치 (릴리스 zip)
 
 > Apple Silicon(M 시리즈) Mac, **macOS 26 이상**에서 실행됩니다.
 
@@ -41,14 +41,14 @@ CCCV 는 유료 Apple Developer Program 으로 서명하거나 공증(notarizati
 - Finder 에서 `CCCV.app` 을 우클릭 → **열기** → 대화상자에서 다시 **열기**
 - 시스템 설정 → 개인정보 보호 및 보안 → **그래도 열기**
 
-가능하면 받은 zip 대신 아래 [직접 빌드](#직접-빌드)로 이 Mac 에서 만드는 쪽을 권합니다.
+가능하면 릴리스 zip 대신 아래 [직접 빌드](#직접-빌드)로 이 Mac 에서 만드는 쪽을 권합니다.
 
-1. `cccv.zip` 을 받아 압축을 풉니다 (보통 `다운로드/cccv` 폴더가 생깁니다).
+1. [최신 릴리스](https://github.com/Hoya-kim/cccv/releases/latest)에서 `cccv.zip` 을 받아 압축을 풉니다 (보통 `다운로드/cccv` 폴더가 생깁니다). 바로 받으려면 <https://github.com/Hoya-kim/cccv/releases/latest/download/cccv.zip> 입니다. 이 주소는 릴리스 asset 이름이 항상 `cccv.zip` 일 때 동작합니다.
 2. 터미널을 열고 아래 한 줄을 실행합니다.
    ```sh
    bash ~/Downloads/cccv/install.sh
    ```
-   응용 프로그램 폴더에 설치하고 실행합니다. 업데이트할 때도 새 zip 을 풀고 같은 명령을 실행하면 됩니다.
+   응용 프로그램 폴더에 설치하고 실행합니다. 업데이트할 때도 새 릴리스의 `cccv.zip` 을 풀고 같은 명령을 실행하면 됩니다.
 3. **손쉬운 사용 권한**을 허용합니다 (시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용 → CCCV). 허용한 뒤 CCCV 를 한 번 종료했다 다시 엽니다.
    이 권한이 있어야 고른 항목이 커서 위치에 바로 붙여넣어집니다. 없으면 클립보드에 복사만 됩니다.
    새 버전으로 업데이트하면 서명이 바뀌어 이 권한이 풀립니다. 붙여넣기가 안 되고 클립보드에 복사만 되면, 시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용에서 − 버튼으로 CCCV 를 지운 뒤 다시 추가하거나 스위치를 껐다 켜세요. 그다음 메뉴바 ⌘C 아이콘 → 종료 → 응용 프로그램에서 CCCV 를 다시 엽니다.
