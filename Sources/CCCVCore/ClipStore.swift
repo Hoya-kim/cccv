@@ -77,27 +77,37 @@ public final class ClipStore {
     }
 
     // ponytail: 바에는 최근 200개만 올린다. 전체 탐색은 검색(M1 4단계)에서 저장소 쿼리로.
-    public func recent(limit: Int = 200, pinnedOnly: Bool = false) throws -> [ClipItem] {
-        var descriptor = FetchDescriptor<ClipItem>(
-            predicate: #Predicate { !pinnedOnly || $0.isPinned },
-            sortBy: [SortDescriptor(\.copiedAt, order: .reverse)]
-        )
-        descriptor.fetchLimit = limit
-        return try context.fetch(descriptor)
+    public func recent(limit: Int = 200) throws -> [ClipItem] {
+        try search("", limit: limit)
+    }
+
+    /// 필터 드롭다운에 보여 줄 출처 앱 목록 (기록에 있는 것만).
+    // ponytail: 전 레코드 스캔. 보존 기간이 있어 규모가 작다.
+    public func sourceBundleIDs() throws -> [String] {
+        var descriptor = FetchDescriptor<ClipItem>()
+        descriptor.propertiesToFetch = [\.sourceBundleID]
+        return Set(try context.fetch(descriptor).compactMap(\.sourceBundleID)).sorted()
     }
 
     /// 본문·링크 제목·사용자 이름에서 대소문자·발음 기호 무시하고 찾는다. 최신순.
     // ponytail: 키 입력마다 LIKE 스캔. 수만 건에서 느려지면 SQLite FTS5 로.
-    public func search(_ query: String, pinnedOnly: Bool = false, limit: Int = 200) throws -> [ClipItem] {
+    public func search(_ query: String, filter: ClipFilter = ClipFilter(), limit: Int = 200) throws -> [ClipItem] {
         let query = query.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return try recent(limit: limit, pinnedOnly: pinnedOnly) }
+        let anyText = query.isEmpty
+        let pinnedOnly = filter.pinnedOnly
+        let anyKind = filter.kind == nil
+        let kindRaw = filter.kind?.rawValue ?? ""
+        let anyApp = filter.sourceBundleID == nil
+        let appID = filter.sourceBundleID ?? ""
         var descriptor = FetchDescriptor<ClipItem>(
             predicate: #Predicate {
-                (!pinnedOnly || $0.isPinned) && (
-                    $0.text.localizedStandardContains(query)
+                (!pinnedOnly || $0.isPinned)
+                    && (anyKind || $0.kindRaw == kindRaw)
+                    && (anyApp || $0.sourceBundleID == appID)
+                    && (anyText
+                        || $0.text.localizedStandardContains(query)
                         || ($0.linkTitle.flatMap { $0.localizedStandardContains(query) } ?? false)
-                        || ($0.title.flatMap { $0.localizedStandardContains(query) } ?? false)
-                )
+                        || ($0.title.flatMap { $0.localizedStandardContains(query) } ?? false))
             },
             sortBy: [SortDescriptor(\.copiedAt, order: .reverse)]
         )

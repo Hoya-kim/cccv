@@ -7,7 +7,7 @@ final class BarPanel: NSPanel {
     static func thickness(for position: BarPosition, scale: Double) -> CGFloat {
         position.isHorizontal
             ? CardMetrics.height * scale + 90
-            : max(CardMetrics.width * scale + 60, 280) // 세로 바는 검색칸·전체/고정 버튼이 들어갈 최소 너비
+            : max(CardMetrics.width * scale + 60, 280) // 좁으면 검색줄이 두 줄로 나뉜다 (BarView.searchRow)
     }
 
     init() {

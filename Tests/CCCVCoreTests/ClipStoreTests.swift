@@ -91,8 +91,24 @@ private func text(_ s: String) -> ClipContent { ClipContent(kind: .text, text: s
     #expect(try store.count(olderThan: cutoff) == 1)
     #expect(try store.purge(olderThan: cutoff) == 1)
     #expect(try store.recent().map(\.text) == ["new", "old pinned"])
-    #expect(try store.search("", pinnedOnly: true).map(\.text) == ["old pinned"])
-    #expect(try store.search("new", pinnedOnly: true).isEmpty)
+    #expect(try store.search("", filter: ClipFilter(pinnedOnly: true)).map(\.text) == ["old pinned"])
+    #expect(try store.search("new", filter: ClipFilter(pinnedOnly: true)).isEmpty)
+}
+
+@MainActor
+@Test func filterByKindAndSourceApp() throws {
+    let store = try ClipStore(url: nil)
+    let start = Date()
+    try store.add(text("edge text"), sourceBundleID: "app.edge", at: start)
+    try store.add(ClipContent(kind: .link, text: "https://a.com"), sourceBundleID: "app.edge", at: start + 1)
+    try store.add(ClipContent(kind: .link, text: "https://b.com"), sourceBundleID: "app.slack", at: start + 2)
+    try store.add(text("unknown"), sourceBundleID: nil, at: start + 3)
+
+    #expect(try store.search("", filter: ClipFilter(kind: .link)).map(\.text) == ["https://b.com", "https://a.com"])
+    #expect(try store.search("", filter: ClipFilter(sourceBundleID: "app.edge")).map(\.text) == ["https://a.com", "edge text"])
+    #expect(try store.search("", filter: ClipFilter(kind: .link, sourceBundleID: "app.edge")).map(\.text) == ["https://a.com"])
+    #expect(try store.search("b.com", filter: ClipFilter(kind: .text)).isEmpty) // 검색어와 함께 걸린다
+    #expect(try store.sourceBundleIDs() == ["app.edge", "app.slack"]) // 출처 없는 항목은 목록에 없음
 }
 
 @MainActor

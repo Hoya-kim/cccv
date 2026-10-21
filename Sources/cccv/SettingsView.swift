@@ -101,6 +101,7 @@ struct SettingsView: View {
         TabView {
             generalTab.tabItem { Label("일반", systemImage: "gearshape") }
             privacyTab.tabItem { Label("개인정보 보호", systemImage: "hand.raised") }
+            shortcutsTab.tabItem { Label("단축키", systemImage: "keyboard") }
         }
         .frame(width: 480)
         .onChange(of: model.position) { AppSettings.barPosition = model.position }
@@ -157,6 +158,52 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(height: 260)
+    }
+
+    /// 바에서 쓰는 키. AppDelegate.handleKey 를 고치면 여기도 맞춘다.
+    /// combos 는 같은 동작의 대체 키들, 각 combo 는 함께 누르는 키들.
+    private static let shortcuts: [(section: String, rows: [(action: String, combos: [[String]])])] = [
+        ("바", [
+            ("바 열기 / 닫기", [["⇧", "⌘", "V"]]),
+            ("항목 이동 (세로 바는 ↑ ↓)", [["←"], ["→"]]),
+            ("붙여넣기", [["Return"]]),
+            ("서식 없이 붙여넣기", [["⇧", "Return"]]),
+            ("검색어 지우기 → 바 닫기", [["Esc"]]),
+            ("전체 / 고정 전환 (⌘← ⌘→ 도 가능)", [["⌘", "["], ["⌘", "]"]]),
+        ]),
+        ("항목", [
+            ("고정 / 고정 해제", [["⌘", "P"]]),
+            ("이름 변경 (Return 저장)", [["⌘", "R"]]),
+            ("내용 편집 (⌘Return 저장)", [["⌘", "E"]]),
+            ("삭제 (검색어가 비어 있을 때)", [["⌫"]]),
+            ("마지막 삭제 되돌리기", [["⌘", "Z"]]),
+        ]),
+    ]
+
+    private var shortcutsTab: some View {
+        Form {
+            ForEach(Self.shortcuts, id: \.section) { group in
+                Section(group.section) {
+                    ForEach(group.rows, id: \.action) { row in
+                        LabeledContent(row.action) {
+                            HStack(spacing: 10) {
+                                ForEach(row.combos, id: \.self) { combo in
+                                    HStack(spacing: 3) {
+                                        ForEach(combo, id: \.self) { KeyCap(key: $0) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Section {
+                Text("검색은 바를 연 뒤 바로 입력하면 됩니다. 한글 조합 중에는 Return·방향키가 입력기로 갑니다.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(height: 520)
     }
 
     private var privacyTab: some View {
@@ -275,6 +322,19 @@ struct SettingsView: View {
         guard panel.runModal() == .OK else { return }
         let ids = panel.urls.compactMap { Bundle(url: $0)?.bundleIdentifier }
         excluded.append(contentsOf: ids.filter { !excluded.contains($0) })
+    }
+}
+
+/// 키 하나를 키캡 모양으로. 기호끼리 붙어 보이지 않게 한다.
+private struct KeyCap: View {
+    let key: String
+
+    var body: some View {
+        Text(key)
+            .font(.system(size: 12, weight: .medium))
+            .padding(.horizontal, 6)
+            .frame(minWidth: 22, minHeight: 20)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
     }
 }
 

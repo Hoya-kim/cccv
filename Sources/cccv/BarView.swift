@@ -9,8 +9,10 @@ final class BarModel {
     var selection = 0
     var position = BarPosition.bottom
     var query = ""
-    /// true 면 고정 항목만 보여 준다 (⌘← / ⌘→, ⌘[ / ⌘] 로 전환).
-    var pinnedOnly = false
+    /// 전체/고정(⌘[ / ⌘], ⌘← / ⌘→), 종류·출처 앱 필터. 바를 열 때마다 초기화.
+    var filter = ClipFilter()
+    /// 필터 드롭다운의 출처 앱 후보.
+    var sourceApps: [String] = []
     /// 바를 열 때마다 올려서 검색창에 포커스를 준다.
     var showCount = 0
     /// 카드·글자 크기 배율 (설정 "카드 크기").
@@ -60,7 +62,7 @@ struct BarView: View {
                 }
         }
         .onChange(of: model.query) { onQueryChange() }
-        .onChange(of: model.pinnedOnly) { onQueryChange() }
+        .onChange(of: model.filter) { onQueryChange() }
         .onChange(of: model.showCount) { focus = .search }
         .onChange(of: model.editingItem == nil) { _, done in focus = done ? .search : .editor }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -68,20 +70,77 @@ struct BarView: View {
         .padding(8)
     }
 
+    /// 한 줄에 안 들어가면(좁은 세로 바) 검색·필터 / 전체·고정 두 줄로 나눈다.
     private var searchRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+                searchField
+                filterMenu
+                pinnedToggle
+            }
+            VStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    searchField
+                    filterMenu
+                }
+                pinnedToggle.frame(maxWidth: .infinity) // 둘째 줄은 가운데 정렬
+            }
+        }
+    }
+
+    private var searchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
             TextField("검색", text: $model.query)
                 .textFieldStyle(.plain)
                 .focused($focus, equals: .search)
-            Picker("보기", selection: $model.pinnedOnly) {
+                .frame(minWidth: 120) // 이보다 좁아지면 두 줄로
+        }
+    }
+
+    private var pinnedToggle: some View {
+        HStack(spacing: 6) {
+            Picker("보기", selection: $model.filter.pinnedOnly) {
                 Text("전체").tag(false)
                 Text("고정").tag(true)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
+            Text("⌘[ ⌘]").font(.caption).foregroundStyle(.tertiary)
         }
+    }
+
+    private var filterMenu: some View {
+        Menu {
+            Picker("종류", selection: $model.filter.kind) {
+                Text("모든 종류").tag(ClipKind?.none)
+                ForEach(ClipKind.allCases, id: \.self) { Text($0.label).tag(ClipKind?.some($0)) }
+            }
+            .pickerStyle(.inline)
+            Picker("출처 앱", selection: $model.filter.sourceBundleID) {
+                Text("모든 앱").tag(String?.none)
+                ForEach(model.sourceApps, id: \.self) { id in
+                    Text(AppInfo.name(of: id) ?? id).tag(String?.some(id))
+                }
+            }
+            .pickerStyle(.inline)
+            if model.filter.narrowsContent {
+                Divider()
+                Button("필터 해제") {
+                    model.filter.kind = nil
+                    model.filter.sourceBundleID = nil
+                }
+            }
+        } label: {
+            Image(systemName: model.filter.narrowsContent
+                ? "line.3.horizontal.decrease.circle.fill"
+                : "line.3.horizontal.decrease.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("종류·출처 앱 필터")
     }
 
     /// 이름 변경은 이 줄의 입력칸에서, 편집은 아래 큰 편집기에서 한다.
@@ -128,7 +187,8 @@ struct BarView: View {
         }
         .overlay {
             if model.items.isEmpty {
-                Text(!model.query.isEmpty ? "검색 결과가 없습니다" : model.pinnedOnly ? "고정한 항목이 없습니다" : "복사한 항목이 없습니다")
+                Text(!model.query.isEmpty || model.filter.narrowsContent ? "조건에 맞는 항목이 없습니다"
+                    : model.filter.pinnedOnly ? "고정한 항목이 없습니다" : "복사한 항목이 없습니다")
                     .foregroundStyle(.secondary)
             }
         }
@@ -172,11 +232,10 @@ private struct ClipCard: View {
                 if item.isPinned {
                     Image(systemName: "pin.fill").foregroundStyle(.orange)
                 }
-                if let app = sourceApp {
-                    Image(nsImage: NSWorkspace.shared.icon(forFile: app.path))
-                        .resizable().frame(width: size(14), height: size(14))
+                if let icon = item.sourceBundleID.flatMap(AppInfo.icon) {
+                    Image(nsImage: icon).resizable().frame(width: size(14), height: size(14))
                 }
-                Text(sourceApp?.name ?? "알 수 없는 앱").lineLimit(1)
+                Text(item.sourceBundleID.flatMap(AppInfo.name) ?? "알 수 없는 앱").lineLimit(1)
                 Spacer()
                 Text(kindLabel)
             }
@@ -262,9 +321,19 @@ private struct ClipCard: View {
         return Color(red: c.r, green: c.g, blue: c.b, opacity: c.a)
     }
 
-    private var sourceApp: (name: String, path: String)? {
-        guard let id = item.sourceBundleID,
-              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else { return nil }
-        return (FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: ""), url.path)
+}
+
+/// 번들 ID → 앱 이름·아이콘. 지금 설치된 앱 기준이라 지운 앱은 nil.
+enum AppInfo {
+    static func name(of bundleID: String) -> String? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID).map {
+            FileManager.default.displayName(atPath: $0.path).replacingOccurrences(of: ".app", with: "")
+        }
+    }
+
+    static func icon(of bundleID: String) -> NSImage? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID).map {
+            NSWorkspace.shared.icon(forFile: $0.path)
+        }
     }
 }

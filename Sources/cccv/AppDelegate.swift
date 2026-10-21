@@ -93,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func reloadItems() {
         do {
-            model.items = try store.search(model.query, pinnedOnly: model.pinnedOnly)
+            model.items = try store.search(model.query, filter: model.filter)
             model.selection = min(model.selection, max(model.items.count - 1, 0))
         } catch {
             NSLog("cccv: 불러오기 실패 %@", String(describing: error))
@@ -176,7 +176,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func show() {
         model.query = ""
-        model.pinnedOnly = false
+        model.filter = ClipFilter()
+        model.sourceApps = (try? store.sourceBundleIDs()) ?? []
         model.editingItem = nil // 편집 중에 바가 닫혔다면 버린다
         model.selection = 0
         model.showCount += 1
@@ -223,9 +224,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch keyCode {
             // 전체/고정 전환. ⌘[ ⌘] 는 물리 키 기준이라 한글 입력 중에도 동작한다.
             case kVK_LeftArrow, kVK_ANSI_LeftBracket:
-                model.pinnedOnly = false
+                model.filter.pinnedOnly = false
             case kVK_RightArrow, kVK_ANSI_RightBracket:
-                model.pinnedOnly = true
+                model.filter.pinnedOnly = true
             case kVK_ANSI_P, kVK_ANSI_R, kVK_ANSI_E:
                 guard let selected else { return true }
                 let actions: [Int: CardAction] = [kVK_ANSI_P: .togglePin, kVK_ANSI_R: .rename, kVK_ANSI_E: .edit]

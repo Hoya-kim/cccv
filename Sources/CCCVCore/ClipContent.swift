@@ -1,8 +1,35 @@
 import CryptoKit
 import Foundation
 
-public enum ClipKind: String, Sendable {
+public enum ClipKind: String, CaseIterable, Sendable {
     case text, richText, link, color, image, file
+
+    public var label: String {
+        switch self {
+        case .text: "텍스트"
+        case .richText: "서식 텍스트"
+        case .link: "링크"
+        case .color: "색상"
+        case .image: "이미지"
+        case .file: "파일"
+        }
+    }
+}
+
+/// 바의 검색 조건 중 검색어를 뺀 나머지. nil 은 "전부".
+public struct ClipFilter: Equatable, Sendable {
+    public var pinnedOnly = false
+    public var kind: ClipKind?
+    public var sourceBundleID: String?
+
+    public init(pinnedOnly: Bool = false, kind: ClipKind? = nil, sourceBundleID: String? = nil) {
+        self.pinnedOnly = pinnedOnly
+        self.kind = kind
+        self.sourceBundleID = sourceBundleID
+    }
+
+    /// 전체/고정 외에 종류·앱 필터가 걸려 있는지 (드롭다운 버튼 표시용).
+    public var narrowsContent: Bool { kind != nil || sourceBundleID != nil }
 }
 
 /// 클립보드에서 읽어 낸 한 건. 저장 전 단계의 값 타입.
