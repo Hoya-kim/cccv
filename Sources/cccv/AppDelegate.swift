@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = BarModel()
     private let watcher = ClipboardWatcher()
     private let panel = BarPanel()
+    private let quickLook = QuickLook()
     private var statusItem: NSStatusItem?
     private var hotKey: HotKey?
     private var keyMonitor: Any?
@@ -28,6 +29,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         setUpStatusItem()
         setUpMainMenu()
+        quickLook.parent = panel
+        quickLook.position = { [weak self] in self?.model.position ?? .bottom }
+        quickLook.anchor = { [weak self] in
+            // SwiftUI global 좌표(뒤집힌 hosting view 기준) → 창 좌표 → 화면 좌표
+            guard let self, let frame = model.selectedCardFrame, let content = panel.contentView else { return nil }
+            return panel.convertToScreen(content.convert(frame, to: nil))
+        }
 
         panel.contentView = NSHostingView(rootView: BarView(
             model: model,
@@ -46,6 +54,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onPasteText: { [weak self] text in
                 self?.hide()
                 Paster.paste(text: text)
+            },
+            onSelectedCardMove: { [weak self] in
+                guard let self, quickLook.isVisible else { return }
+                quickLook.reposition()
             }
         ))
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
@@ -224,6 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func hide() {
+        quickLook.close()
         guard panel.isVisible else { return }
         panel.orderOut(nil)
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
@@ -251,8 +264,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // ⌘T 변환 목록이 떠 있으면 ↑↓·Return·1–9·Esc 만 받고 나머지 키는 삼킨다 (검색창으로 새지 않게).
+        let digits = Self.digitKeys
         if !model.transforms.isEmpty {
-            let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5, kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
             let count = min(model.transforms.count, digits.count)
             var pasteIndex: Int?
             switch keyCode {
@@ -290,9 +303,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 perform(actions[keyCode]!, on: selected)
             case kVK_ANSI_Z where model.query.isEmpty && lastDeleted != nil:
                 restoreLastDeleted()
+            case _ where digits.contains(keyCode):
+                // ⌘1–9 번호 붙여넣기 (⇧⌘1–9 는 서식 없이). 보이는 순서 기준.
+                pick(digits.firstIndex(of: keyCode)!, plainText: shift)
             default:
                 return false // ⌘C·⌘V·⌘A 등은 검색창 편집으로
             }
+            return true
+        }
+
+        // 미리보기가 열려 있으면 Space·Esc 는 미리보기만 닫는다.
+        if quickLook.isVisible, keyCode == kVK_Space || keyCode == kVK_Escape {
+            quickLook.close()
             return true
         }
 
@@ -303,10 +325,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case kVK_Delete where model.query.isEmpty:
             guard let selected else { return true }
             perform(.delete, on: selected)
+        // 검색어가 있으면 Space 는 띄어쓰기. 비어 있을 때만 미리보기.
+        case kVK_Space where model.query.isEmpty:
+            guard let selected else { return true }
+            quickLook.show(selected)
         case horizontal ? kVK_LeftArrow : kVK_UpArrow:
             model.selection = max(model.selection - 1, 0)
+            quickLook.follow(model.items.indices.contains(model.selection) ? model.items[model.selection] : nil)
         case horizontal ? kVK_RightArrow : kVK_DownArrow:
             model.selection = min(model.selection + 1, max(model.items.count - 1, 0))
+            quickLook.follow(model.items.indices.contains(model.selection) ? model.items[model.selection] : nil)
         case kVK_Return, kVK_ANSI_KeypadEnter:
             pick(model.selection, plainText: shift)
         case kVK_Escape:
@@ -317,6 +345,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return true
     }
+
+    private static let digitKeys = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5, kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
 
     // ponytail: 되돌리기는 마지막 삭제 1건만. 여러 단계가 필요해지면 스택으로.
     private var lastDeleted: ClipStore.DeletedClip?

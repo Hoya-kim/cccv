@@ -25,6 +25,15 @@ final class BarModel {
     var transforms: [(label: String, result: String)] = []
     /// 변환 목록에서 고른 줄 (↑↓·마우스). 오른쪽에 결과 전체를 보여 준다.
     var transformSelection = 0
+    /// 선택한 카드의 바 안 좌표 (SwiftUI global). Space 미리보기를 이 카드 옆에 띄운다.
+    var selectedCardFrame: CGRect?
+}
+
+private struct SelectedCardFrameKey: PreferenceKey {
+    static let defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        value = value ?? nextValue()
+    }
 }
 
 enum EditMode {
@@ -51,6 +60,8 @@ struct BarView: View {
     let onAction: (CardAction, ClipItem) -> Void
     /// 변환 결과를 붙여넣는다.
     let onPasteText: (String) -> Void
+    /// 선택한 카드가 움직였을 때 (스크롤·선택 이동) — 미리보기 위치를 따라가게.
+    let onSelectedCardMove: () -> Void
 
     private enum Field { case search, editor }
     @FocusState private var focus: Field?
@@ -72,6 +83,10 @@ struct BarView: View {
         .onChange(of: model.filter) { onQueryChange() }
         .onChange(of: model.showCount) { focus = .search }
         .onChange(of: model.editingItem == nil) { _, done in focus = done ? .search : .editor }
+        .onPreferenceChange(SelectedCardFrameKey.self) { frame in
+            MainActor.assumeIsolated { model.selectedCardFrame = frame }
+        }
+        .onChange(of: model.selectedCardFrame) { onSelectedCardMove() }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
         .padding(8)
@@ -254,8 +269,13 @@ struct BarView: View {
 
     private var cards: some View {
         ForEach(Array(model.items.enumerated()), id: \.element.persistentModelID) { index, item in
-            ClipCard(item: item, isSelected: index == model.selection, scale: model.scale)
+            ClipCard(item: item, isSelected: index == model.selection, scale: model.scale, number: index < 9 ? index + 1 : nil)
                 .id(item.persistentModelID)
+                .background {
+                    if index == model.selection {
+                        GeometryReader { Color.clear.preference(key: SelectedCardFrameKey.self, value: $0.frame(in: .global)) }
+                    }
+                }
                 .onTapGesture { onPick(index) }
                 .onAppear { onCardAppear(item) }
                 .contextMenu {
@@ -284,6 +304,8 @@ private struct ClipCard: View {
     let item: ClipItem
     let isSelected: Bool
     let scale: Double
+    /// ⌘1–9 번호 (앞 9개만).
+    let number: Int?
 
     private func size(_ base: CGFloat) -> CGFloat { base * scale }
 
@@ -307,11 +329,15 @@ private struct ClipCard: View {
             }
             preview
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            TimelineView(.everyMinute) { context in
-                Text(RelativeTime.label(since: item.copiedAt, now: context.date))
-                    .font(.system(size: size(10)))
-                    .foregroundStyle(.tertiary)
+            HStack {
+                TimelineView(.everyMinute) { context in
+                    Text(RelativeTime.label(since: item.copiedAt, now: context.date))
+                }
+                Spacer()
+                if let number { Text("⌘\(number)") }
             }
+            .font(.system(size: size(10)))
+            .foregroundStyle(.tertiary)
         }
         .padding(size(12))
         .frame(width: size(CardMetrics.width), height: size(CardMetrics.height))
