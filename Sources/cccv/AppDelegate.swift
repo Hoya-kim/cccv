@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.position = AppSettings.barPosition
         model.scale = AppSettings.cardScale
+        model.alwaysPlainText = AppSettings.alwaysPlainText
         purgeExpired()
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.purgeExpired() }
@@ -354,6 +355,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func perform(_ action: CardAction, on item: ClipItem) {
         do {
             switch action {
+            case .paste(let plain):
+                paste(item, plain: plain)
+                return
             case .togglePin:
                 item.isPinned.toggle()
                 try store.save()
@@ -412,11 +416,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         reloadItems()
     }
 
-    private func pick(_ index: Int, plainText: Bool = false) {
+    /// 키·클릭 붙여넣기. ⇧(invert) 는 "항상 서식 없이" 설정을 뒤집는다.
+    private func pick(_ index: Int, plainText invert: Bool = false) {
         guard model.items.indices.contains(index) else { return }
-        let item = model.items[index]
+        paste(model.items[index], plain: invert != AppSettings.alwaysPlainText)
+    }
+
+    private func paste(_ item: ClipItem, plain: Bool) {
         hide()
         // 붙여넣어도 순서는 그대로 둔다 (사용자 결정). 감시기는 cccv 자신의 쓰기를 무시한다.
-        Paster.paste(item, plainText: plainText)
+        Paster.paste(item, plainText: plain)
     }
 }

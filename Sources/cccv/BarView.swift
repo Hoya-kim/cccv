@@ -17,6 +17,8 @@ final class BarModel {
     var showCount = 0
     /// 카드·글자 크기 배율 (설정 "카드 크기").
     var scale = 1.0
+    /// 설정 "항상 서식 없이 붙여넣기". 우클릭 메뉴의 단축키 안내도 이에 맞춘다.
+    var alwaysPlainText = false
     /// 이름 변경·편집 중인 항목. nil 이 아니면 검색 대신 입력칸이 보인다.
     var editingItem: ClipItem?
     var editMode = EditMode.rename
@@ -41,6 +43,8 @@ enum EditMode {
 }
 
 enum CardAction {
+    /// 우클릭 메뉴의 붙여넣기는 설정과 상관없이 고른 그대로 (plain: 서식 없이).
+    case paste(plain: Bool)
     case togglePin, delete, rename, edit, transform
 }
 
@@ -279,6 +283,14 @@ struct BarView: View {
                 .onTapGesture { onPick(index) }
                 .onAppear { onCardAppear(item) }
                 .contextMenu {
+                    let plainKey = model.alwaysPlainText ? "Return" : "⇧Return"
+                    let formattedKey = model.alwaysPlainText ? "⇧Return" : "Return"
+                    Button("붙여넣기 (\(formattedKey))") { onAction(.paste(plain: false), item) }
+                    // 서식이 있는 종류만 — 일반 텍스트·링크·색상은 결과가 같고, 이미지는 텍스트가 없다.
+                    if item.kind == .richText || item.kind == .file {
+                        Button("서식 없이 붙여넣기 (\(plainKey))") { onAction(.paste(plain: true), item) }
+                    }
+                    Divider()
                     Button(item.isPinned ? "고정 해제 (⌘P)" : "고정 (⌘P)") { onAction(.togglePin, item) }
                     Button("이름 변경 (⌘R)") { onAction(.rename, item) }
                     if item.isEditable {

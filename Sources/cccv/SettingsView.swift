@@ -60,6 +60,12 @@ enum AppSettings {
         now.addingTimeInterval(-Double(days) * 86400)
     }
 
+    /// 켜면 Return 이 서식 없이, ⇧Return 이 서식 그대로 붙여넣는다.
+    static var alwaysPlainText: Bool {
+        get { UserDefaults.standard.bool(forKey: "alwaysPlainText") }
+        set { UserDefaults.standard.set(newValue, forKey: "alwaysPlainText") }
+    }
+
     /// 링크 카드가 보일 때 OG 미리보기를 가져올지.
     static var linkPreviewEnabled: Bool {
         get { UserDefaults.standard.object(forKey: "linkPreviewEnabled") as? Bool ?? true }
@@ -131,6 +137,7 @@ struct SettingsView: View {
         .frame(width: 480)
         .onChange(of: model.position) { AppSettings.barPosition = model.position }
         .onChange(of: model.scale) { AppSettings.cardScale = model.scale }
+        .onChange(of: model.alwaysPlainText) { AppSettings.alwaysPlainText = model.alwaysPlainText }
         .onChange(of: linkPreviewEnabled) { AppSettings.linkPreviewEnabled = linkPreviewEnabled }
         .onChange(of: excluded) { AppSettings.excludedBundleIDs = excluded }
         .onChange(of: patterns) { AppSettings.excludedPatterns = patterns }
@@ -180,6 +187,11 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
 
+                Toggle(isOn: $model.alwaysPlainText) {
+                    Text("항상 서식 없이 붙여넣기")
+                    Text("켜면 Return 이 서식 없이, ⇧Return 이 서식 그대로 붙여넣습니다.")
+                }
+
                 // setter 에 메서드 참조를 그대로 넘기면 Swift 6.2 컴파일러가 IRGen 에서 크래시한다 → 클로저로 감싼다.
                 Picker("보존 기간", selection: Binding(get: { retentionDays }, set: { requestRetention($0) })) {
                     ForEach(AppSettings.retentionChoices, id: \.self) { days in
@@ -200,7 +212,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 320)
+        .frame(height: 370)
         .onDisappear(perform: stopRecording) // 기록 중에 창을 닫아도 단축키가 풀린 채 남지 않게
     }
 
@@ -255,8 +267,8 @@ struct SettingsView: View {
             ("바 열기 / 닫기 (일반 탭에서 변경)", [hotKey.tokens]),
             ("항목 이동 (세로 바는 ↑ ↓)", [["←"], ["→"]]),
             ("붙여넣기", [["Return"]]),
-            ("서식 없이 붙여넣기", [["⇧", "Return"]]),
-            ("앞에서 N번째 바로 붙여넣기 (⇧ 를 더하면 서식 없이)", [["⌘", "1–9"]]),
+            ("서식 반대로 붙여넣기 (기본은 서식 없이, '항상 서식 없이' 를 켜면 서식 그대로)", [["⇧", "Return"]]),
+            ("앞에서 N번째 바로 붙여넣기 (⇧ 를 더하면 서식 반대로)", [["⌘", "1–9"]]),
             ("크게 미리보기 (검색어가 비어 있을 때, 다시 누르면 닫기)", [["Space"]]),
             ("검색어 지우기 → 바 닫기", [["Esc"]]),
             ("전체 / 고정 전환 (⌘← ⌘→ 도 가능)", [["⌘", "["], ["⌘", "]"]]),
