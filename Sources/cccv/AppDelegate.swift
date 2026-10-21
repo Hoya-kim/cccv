@@ -425,10 +425,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         reloadItems()
     }
 
-    /// 키·클릭 붙여넣기. ⇧(invert) 는 "항상 서식 없이" 설정을 뒤집는다.
+    /// 키·클릭 붙여넣기. 기본값은 "항상 서식 없이" 설정 또는 대상 앱 규칙, ⇧(invert) 는 그걸 뒤집는다.
     private func pick(_ index: Int, plainText invert: Bool = false) {
         guard model.items.indices.contains(index) else { return }
-        paste(model.items[index], plain: invert != AppSettings.alwaysPlainText)
+        // 바는 앱을 활성화하지 않으므로 지금 앞에 있는 앱이 붙여넣을 대상이다.
+        let target = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let plainByDefault = AppSettings.alwaysPlainText || target.map(AppSettings.plainTextBundleIDs.contains) == true
+        paste(model.items[index], plain: invert != plainByDefault)
     }
 
     private func paste(_ item: ClipItem, plain: Bool) {

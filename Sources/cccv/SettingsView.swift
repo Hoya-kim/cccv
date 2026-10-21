@@ -60,6 +60,12 @@ enum AppSettings {
         now.addingTimeInterval(-Double(days) * 86400)
     }
 
+    /// 이 앱에 붙여넣을 때는 항상 서식 없이 (⇧ 로 반전).
+    static var plainTextBundleIDs: [String] {
+        get { UserDefaults.standard.stringArray(forKey: "plainTextBundleIDs") ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: "plainTextBundleIDs") }
+    }
+
     /// 켜면 Return 이 서식 없이, ⇧Return 이 서식 그대로 붙여넣는다.
     static var alwaysPlainText: Bool {
         get { UserDefaults.standard.bool(forKey: "alwaysPlainText") }
@@ -122,7 +128,7 @@ struct SettingsView: View {
     @State private var launchError: String?
 
     @State private var excluded = AppSettings.excludedBundleIDs
-    @State private var selection: String?
+    @State private var plainTextApps = AppSettings.plainTextBundleIDs
     @State private var patterns = AppSettings.excludedPatterns
     @State private var patternSelection: ExcludedPattern?
     @State private var newPattern = ""
@@ -131,6 +137,7 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             generalTab.tabItem { Label("일반", systemImage: "gearshape") }
+            pasteTab.tabItem { Label("붙여넣기", systemImage: "doc.on.clipboard") }
             privacyTab.tabItem { Label("개인정보 보호", systemImage: "hand.raised") }
             shortcutsTab.tabItem { Label("단축키", systemImage: "keyboard") }
         }
@@ -140,6 +147,7 @@ struct SettingsView: View {
         .onChange(of: model.alwaysPlainText) { AppSettings.alwaysPlainText = model.alwaysPlainText }
         .onChange(of: linkPreviewEnabled) { AppSettings.linkPreviewEnabled = linkPreviewEnabled }
         .onChange(of: excluded) { AppSettings.excludedBundleIDs = excluded }
+        .onChange(of: plainTextApps) { AppSettings.plainTextBundleIDs = plainTextApps }
         .onChange(of: patterns) { AppSettings.excludedPatterns = patterns }
         .onAppear { launchAtLogin = SMAppService.mainApp.status }
         .confirmationDialog(
@@ -187,11 +195,6 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
 
-                Toggle(isOn: $model.alwaysPlainText) {
-                    Text("항상 서식 없이 붙여넣기")
-                    Text("켜면 Return 이 서식 없이, ⇧Return 이 서식 그대로 붙여넣습니다.")
-                }
-
                 // setter 에 메서드 참조를 그대로 넘기면 Swift 6.2 컴파일러가 IRGen 에서 크래시한다 → 클로저로 감싼다.
                 Picker("보존 기간", selection: Binding(get: { retentionDays }, set: { requestRetention($0) })) {
                     ForEach(AppSettings.retentionChoices, id: \.self) { days in
@@ -212,7 +215,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 370)
+        .frame(height: 330)
         .onDisappear(perform: stopRecording) // 기록 중에 창을 닫아도 단축키가 풀린 채 남지 않게
     }
 
@@ -267,7 +270,7 @@ struct SettingsView: View {
             ("바 열기 / 닫기 (일반 탭에서 변경)", [hotKey.tokens]),
             ("항목 이동 (세로 바는 ↑ ↓)", [["←"], ["→"]]),
             ("붙여넣기", [["Return"]]),
-            ("서식 반대로 붙여넣기 (기본은 서식 없이, '항상 서식 없이' 를 켜면 서식 그대로)", [["⇧", "Return"]]),
+            ("서식 반대로 붙여넣기 (붙여넣기 탭 설정·앱 규칙의 반대)", [["⇧", "Return"]]),
             ("앞에서 N번째 바로 붙여넣기 (⇧ 를 더하면 서식 반대로)", [["⌘", "1–9"]]),
             ("크게 미리보기 (검색어가 비어 있을 때, 다시 누르면 닫기)", [["Space"]]),
             ("검색어 지우기 → 바 닫기", [["Esc"]]),
@@ -309,6 +312,28 @@ struct SettingsView: View {
         .frame(height: 560)
     }
 
+    private var pasteTab: some View {
+        Form {
+            Section {
+                Toggle(isOn: $model.alwaysPlainText) {
+                    Text("항상 서식 없이 붙여넣기")
+                    Text("켜면 Return 이 서식 없이, ⇧Return 이 서식 그대로 붙여넣습니다.")
+                }
+            }
+
+            Section {
+                AppListEditor(bundleIDs: $plainTextApps)
+            } header: {
+                Text("항상 서식 없이 붙여넣을 앱")
+            } footer: {
+                Text("이 앱에 붙여넣을 때는 위 설정이 꺼져 있어도 서식 없이 붙여넣습니다 (예: 터미널, 코드 편집기). ⇧ 를 누르면 반대로.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(height: 400)
+    }
+
     private var privacyTab: some View {
         Form {
             Section {
@@ -319,18 +344,7 @@ struct SettingsView: View {
             }
 
             Section {
-                List(excluded, id: \.self, selection: $selection) { bundleID in
-                    AppRow(bundleID: bundleID)
-                }
-                .frame(minHeight: 100)
-                HStack {
-                    Button("앱 추가…", action: addApp)
-                    Button("삭제") {
-                        excluded.removeAll { $0 == selection }
-                        selection = nil
-                    }
-                    .disabled(selection == nil)
-                }
+                AppListEditor(bundleIDs: $excluded)
             } header: {
                 Text("제외 앱")
             } footer: {
@@ -417,6 +431,26 @@ struct SettingsView: View {
         newMemo = ""
     }
 
+}
+
+/// 앱 목록 편집 (제외 앱, 서식 없이 붙여넣을 앱).
+private struct AppListEditor: View {
+    @Binding var bundleIDs: [String]
+    @State private var selection: String?
+
+    var body: some View {
+        List(bundleIDs, id: \.self, selection: $selection) { AppRow(bundleID: $0) }
+            .frame(minHeight: 100)
+        HStack {
+            Button("앱 추가…", action: addApp)
+            Button("삭제") {
+                bundleIDs.removeAll { $0 == selection }
+                selection = nil
+            }
+            .disabled(selection == nil)
+        }
+    }
+
     private func addApp() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.application]
@@ -424,7 +458,7 @@ struct SettingsView: View {
         panel.directoryURL = URL(filePath: "/Applications")
         guard panel.runModal() == .OK else { return }
         let ids = panel.urls.compactMap { Bundle(url: $0)?.bundleIdentifier }
-        excluded.append(contentsOf: ids.filter { !excluded.contains($0) })
+        bundleIDs.append(contentsOf: ids.filter { !bundleIDs.contains($0) })
     }
 }
 
