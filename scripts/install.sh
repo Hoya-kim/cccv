@@ -2,8 +2,9 @@
 # CCCV 설치 — 이 스크립트 옆의 CCCV.app 을 응용 프로그램 폴더에 설치하고 실행한다.
 # 사용: bash ~/Downloads/cccv/install.sh   (업데이트도 같은 명령)
 #
-# 공증(notarization)을 받지 않은 앱이라 그대로 열면 macOS 가 막는다.
-# 이 스크립트는 설치한 CCCV.app 의 격리 표시(quarantine)를 지워 그 경고를 넘긴다.
+# 공증(notarization)을 받지 않은 앱이라 그대로 열면 Gatekeeper 가 막는다.
+# 이 스크립트는 설치한 CCCV.app 의 격리 표시(quarantine)를 지워 그 검사를 우회한다.
+# 직접 빌드했거나 출처를 믿는 빌드에만 실행할 것.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -37,6 +38,7 @@ if pgrep -xq cccv; then
     pgrep -xq cccv && pkill -x cccv || true
 fi
 
+echo "⚠️  격리 표시(com.apple.quarantine)를 지운 뒤 설치합니다. Gatekeeper 검사를 우회하므로, 직접 빌드했거나 출처를 믿는 경우에만 이 스크립트를 쓰세요."
 echo "설치 위치: $DEST"
 rm -rf "$DEST"
 ditto "$SRC" "$DEST"
@@ -48,10 +50,13 @@ cat <<'EOF'
 
 ✅ 설치했습니다. 메뉴바에 ⌘C 아이콘이 보이면 실행된 것입니다.
 
-처음 한 번만 해 주세요:
+손쉬운 사용 (붙여넣기에 필요):
   1. "손쉬운 사용" 권한 창이 뜨면 → 시스템 설정 열기 → CCCV 켜기
      (안 뜨면: 시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용 → CCCV 켜기)
   2. 권한을 켠 뒤 메뉴바 ⌘C 아이콘 → 종료 → 응용 프로그램에서 CCCV 다시 열기
+
+새 버전으로 다시 설치하면 서명이 바뀌어 이 권한이 풀립니다.
+붙여넣기 대신 클립보드에만 복사되면, 손쉬운 사용에서 − 로 CCCV 를 지운 뒤 다시 추가하거나 스위치를 껐다 켜고, 2번처럼 다시 여세요.
 
 사용법: 아무 데서나 ⇧⌘V → ←→ 로 고르고 Return
 설정·단축키: 메뉴바 ⌘C 아이콘 → 설정…

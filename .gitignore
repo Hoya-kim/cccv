@@ -4,3 +4,6 @@ build/
 .swiftpm/
 dist/
 .sphinx*
+xcuserdata/
+DerivedData/
+*.xcuserstate
