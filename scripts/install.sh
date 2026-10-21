@@ -2,8 +2,9 @@
 # CCCV 설치 — 이 스크립트 옆의 CCCV.app 을 응용 프로그램 폴더에 설치하고 실행한다.
 # 사용: bash ~/Downloads/cccv/install.sh   (업데이트도 같은 명령)
 #
-# 공증(notarization)을 받지 않은 앱이라 그대로 열면 macOS 가 막는다.
-# 이 스크립트는 설치한 CCCV.app 의 격리 표시(quarantine)를 지워 그 경고를 넘긴다.
+# 공증(notarization)을 받지 않은 앱이라 그대로 열면 Gatekeeper 가 막는다.
+# 이 스크립트는 설치한 CCCV.app 의 격리 표시(quarantine)를 지워 그 검사를 우회한다.
+# 직접 빌드했거나 출처를 믿는 빌드에만 실행할 것.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -37,6 +38,7 @@ if pgrep -xq cccv; then
     pgrep -xq cccv && pkill -x cccv || true
 fi
 
+echo "⚠️  격리 표시(com.apple.quarantine)를 지운 뒤 설치합니다. Gatekeeper 검사를 우회하므로, 직접 빌드했거나 출처를 믿는 경우에만 이 스크립트를 쓰세요."
 echo "설치 위치: $DEST"
 rm -rf "$DEST"
 ditto "$SRC" "$DEST"
