@@ -1,5 +1,5 @@
 #!/bin/bash
-# release 빌드 후 build/cccv.app 으로 조립·서명한다.
+# release 빌드 후 build/CCCV.app 으로 조립·서명한다.
 # 서명: CODESIGN_IDENTITY > 키체인의 첫 "Apple Development" 인증서 > ad-hoc(-).
 # ad-hoc 은 빌드마다 서명이 바뀌어 접근성 권한이 풀린다.
 set -euo pipefail
@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 
 swift build -c release
 
-APP=build/cccv.app
+APP=build/CCCV.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/cccv "$APP/Contents/MacOS/cccv"
@@ -28,10 +28,11 @@ cat > "$APP/Contents/Info.plist" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDisplayName</key><string>CCCV</string>
     <key>CFBundleExecutable</key><string>cccv</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleIdentifier</key><string>local.cccv</string>
-    <key>CFBundleName</key><string>cccv</string>
+    <key>CFBundleName</key><string>CCCV</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0.1</string>
     <key>CFBundleVersion</key><string>1</string>
@@ -50,12 +51,12 @@ codesign --force --sign "$IDENTITY" "$APP"
 
 # 로그인 시 자동 실행은 앱 경로 기준이라 고정 위치에 설치한다.
 # 같은 이름의 다른 앱을 지우지 않도록 번들 ID 가 local.cccv 일 때만 교체한다.
-DEST=/Applications/cccv.app
+DEST=/Applications/CCCV.app
 if [ -e "$DEST" ] && [ "$(defaults read "$DEST/Contents/Info" CFBundleIdentifier 2>/dev/null)" != "local.cccv" ]; then
-    echo "error: $DEST 가 cccv 가 아닌 다른 앱입니다. 설치를 건너뜁니다." >&2
+    echo "error: $DEST 가 CCCV 가 아닌 다른 앱입니다. 설치를 건너뜁니다." >&2
     exit 1
 fi
 rm -rf "$DEST"
-# 복사가 아니라 이동 — build/ 에 사본이 남으면 Spotlight·앱 목록에 cccv 가 두 개 뜬다.
+# 복사가 아니라 이동 — build/ 에 사본이 남으면 Spotlight·앱 목록에 CCCV 가 두 개 뜬다.
 mv "$APP" "$DEST"
 echo "$DEST"

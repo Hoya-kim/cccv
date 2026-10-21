@@ -114,7 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 템플릿 이미지라 라이트·다크 메뉴바에 맞춰 색이 바뀐다. swift run 처럼 번들 밖에서 실행하면 SF Symbol 로.
         let icon = NSImage(named: "MenuBarIcon") ?? NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: nil)
         icon?.isTemplate = true
-        icon?.accessibilityDescription = "cccv"
+        icon?.accessibilityDescription = "CCCV"
         item.button?.image = icon
         let menu = NSMenu()
         openMenuItem = menu.addItem(withTitle: "열기", action: #selector(showFromMenu), keyEquivalent: "")
@@ -199,7 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ))
         controller.sizingOptions = [.preferredContentSize] // 탭을 바꾸면 창 높이가 따라간다
         let window = NSWindow(contentViewController: controller)
-        window.title = "cccv 설정"
+        window.title = "CCCV 설정"
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
@@ -224,8 +224,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "설정…", action: #selector(openSettings), keyEquivalent: ",").target = self
         appMenu.addItem(withTitle: "창 닫기", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        appMenu.addItem(withTitle: "cccv 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        mainMenu.addItem(withTitle: "cccv", action: nil, keyEquivalent: "").submenu = appMenu
+        appMenu.addItem(withTitle: "CCCV 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        mainMenu.addItem(withTitle: "CCCV", action: nil, keyEquivalent: "").submenu = appMenu
 
         let editMenu = NSMenu(title: "편집")
         editMenu.addItem(withTitle: "실행 취소", action: Selector(("undo:")), keyEquivalent: "z")

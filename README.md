@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="Resources/AppIcon-1024.png" width="128" alt="cccv 아이콘">
+  <img src="Resources/AppIcon-1024.png" width="128" alt="CCCV 아이콘">
 </p>
 
-<h1 align="center">cccv</h1>
+<h1 align="center">CCCV</h1>
 
-<p align="center"><b>c</b>ommand + <b>c</b>, <b>c</b>ommand + <b>v</b></p>
+<p align="center"><b>C</b>ommand + <b>C</b>, <b>C</b>ommand + <b>V</b></p>
 
 <p align="center">⌘C 한 것들을 다시 꺼내 쓰는 macOS 클립보드 매니저</p>
 
@@ -42,11 +42,11 @@
    bash ~/Downloads/cccv/install.sh
    ```
    응용 프로그램 폴더에 설치하고 실행합니다. 업데이트할 때도 새 zip 을 풀고 같은 명령을 실행하면 됩니다.
-3. **손쉬운 사용 권한**을 허용합니다 (시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용 → cccv). 허용한 뒤 cccv 를 한 번 종료했다 다시 엽니다.
+3. **손쉬운 사용 권한**을 허용합니다 (시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용 → CCCV). 허용한 뒤 CCCV 를 한 번 종료했다 다시 엽니다.
    이 권한이 있어야 고른 항목이 커서 위치에 바로 붙여넣어집니다. 없으면 클립보드에 복사만 됩니다.
 
-> cccv 는 Apple 공증(notarization)을 받지 않은 앱이라, 그냥 열면 macOS 가 "확인되지 않은 개발자" 로 막습니다.
-> `install.sh` 는 설치한 cccv.app 의 격리 표시를 지워 이 경고를 넘깁니다. 믿을 수 있는 사람에게 받은 경우에만 설치하세요.
+> CCCV 는 Apple 공증(notarization)을 받지 않은 앱이라, 그냥 열면 macOS 가 "확인되지 않은 개발자" 로 막습니다.
+> `install.sh` 는 설치한 CCCV.app 의 격리 표시를 지워 이 경고를 넘깁니다. 믿을 수 있는 사람에게 받은 경우에만 설치하세요.
 
 ## 사용법
 
@@ -84,8 +84,8 @@ macOS 26, Xcode 26 (Swift 6.2) 이 필요합니다.
 
 ```sh
 swift test               # 핵심 로직 테스트
-./scripts/bundle.sh      # 빌드 → 서명 → /Applications/cccv.app 설치
-./scripts/package.sh     # 공유용 dist/cccv.zip (cccv.app + install.sh)
+./scripts/bundle.sh      # 빌드 → 서명 → /Applications/CCCV.app 설치
+./scripts/package.sh     # 공유용 dist/cccv.zip (CCCV.app + install.sh)
 ```
 
 - 서명: 키체인의 첫 Apple Development 인증서를 씁니다 (`CODESIGN_IDENTITY` 로 지정 가능). 없으면 ad-hoc 서명이라 빌드할 때마다 손쉬운 사용 권한이 풀립니다.
