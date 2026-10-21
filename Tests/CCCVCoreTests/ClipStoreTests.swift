@@ -116,6 +116,34 @@ private func text(_ s: String) -> ClipContent { ClipContent(kind: .text, text: s
     #expect(try store.search("예시").count == 1) // 이름도 검색된다
 }
 
+@MainActor
+@Test func editReclassifiesAndDropsFormatting() throws {
+    let store = try ClipStore(url: nil)
+    try store.add(ClipContent(kind: .richText, text: "hello", payload: Data([1]), payloadType: "public.rtf"), sourceBundleID: "app.one")
+    let item = try #require(try store.recent().first)
+    item.title = "인사"
+
+    try store.edit(item, newText: "https://example.com")
+    #expect(item.kind == .link && item.payload == nil && item.text == "https://example.com")
+    #expect(item.title == "인사" && item.sourceBundleID == "app.one") // 이름·출처는 유지
+
+    try store.edit(item, newText: "")
+    #expect(item.text == "https://example.com") // 빈 내용은 무시
+
+    // 고친 내용을 다시 복사하면 새 항목이 아니라 이 항목이 앞으로 온다 (해시 갱신)
+    try store.add(ClipContent(kind: .link, text: "https://example.com"), sourceBundleID: nil)
+    #expect(try store.recent().count == 1)
+}
+
+@MainActor
+@Test func imagesAndFilesAreNotEditable() throws {
+    let store = try ClipStore(url: nil)
+    try store.add(ClipContent(kind: .image, text: "", payload: Data([1]), payloadType: "public.png"), sourceBundleID: nil)
+    let image = try #require(try store.recent().first)
+    try store.edit(image, newText: "text")
+    #expect(image.kind == .image && image.payload == Data([1]))
+}
+
 @Test func excludedPatternMatchesWholeTrimmedText() {
     let otp = [#"^\d{6}$"#]
     #expect(PasteboardRules.matchesExcludedPattern("123456", patterns: otp))

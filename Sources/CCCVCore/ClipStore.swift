@@ -121,6 +121,24 @@ public final class ClipStore {
         return old.count
     }
 
+    /// 텍스트 계열 항목의 내용을 덮어쓴다. 종류는 새 내용으로 다시 판정한다
+    /// (서식은 버려져 일반 텍스트가 되고, URL 로 고치면 링크가 된다). 빈 내용이면 무시한다.
+    public func edit(_ item: ClipItem, newText: String) throws {
+        guard item.kind != .image, item.kind != .file,
+              let content = ClipContent.classify(fileURLs: [], string: newText, rtf: nil, html: nil, image: { nil })
+        else { return }
+        item.text = content.text
+        item.kindRaw = content.kind.rawValue
+        item.payload = nil
+        item.payloadType = nil
+        item.contentHash = content.contentHash
+        // 링크가 바뀌었을 수 있으니 미리보기는 다시 가져오게 한다.
+        item.linkTitle = nil
+        item.linkImage = nil
+        item.linkFetchedAt = nil
+        try context.save()
+    }
+
     /// 사용자가 지운 항목. 되돌리기(⌘Z)를 위해 필드를 전부 값으로 들고 있는다.
     public struct DeletedClip: Sendable {
         let content: ClipContent

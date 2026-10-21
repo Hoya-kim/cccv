@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             fatalError("cccv: 저장소를 열 수 없습니다 \(ClipStore.defaultURL.path): \(error)")
         }
         model.position = AppSettings.barPosition
+        model.scale = AppSettings.cardScale
         purgeExpired()
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.purgeExpired() }
@@ -176,9 +177,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func show() {
         model.query = ""
         model.pinnedOnly = false
+        model.editingItem = nil // 편집 중에 바가 닫혔다면 버린다
         model.selection = 0
         model.showCount += 1
-        panel.show(at: model.position)
+        panel.show(at: model.position, scale: model.scale)
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let keyCode = Int(event.keyCode)
             let shift = event.modifierFlags.contains(.shift)
@@ -199,15 +201,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleKey(_ keyCode: Int, shift: Bool, command: Bool) -> Bool {
         // 한글 등 조합 중이면 Return·방향키는 입력기 몫이다.
         if (panel.firstResponder as? NSTextView)?.hasMarkedText() == true { return false }
+
+        // 이름 변경·편집 중에는 저장/취소 키만 가로채고 나머지(방향키·줄바꿈)는 입력칸 몫이다.
+        if model.editingItem != nil {
+            switch keyCode {
+            case kVK_Escape:
+                model.editingItem = nil
+            case kVK_Return, kVK_ANSI_KeypadEnter:
+                // 내용 편집에서 Return 은 줄바꿈, ⌘Return 이 저장.
+                guard model.editMode == .rename || command else { return false }
+                saveEditing()
+            default:
+                return false
+            }
+            return true
+        }
+
         let selected = model.items.indices.contains(model.selection) ? model.items[model.selection] : nil
 
         if command {
             switch keyCode {
-            case kVK_LeftArrow, kVK_RightArrow:
-                model.pinnedOnly = keyCode == kVK_RightArrow
-            case kVK_ANSI_P:
+            // 전체/고정 전환. ⌘[ ⌘] 는 물리 키 기준이라 한글 입력 중에도 동작한다.
+            case kVK_LeftArrow, kVK_ANSI_LeftBracket:
+                model.pinnedOnly = false
+            case kVK_RightArrow, kVK_ANSI_RightBracket:
+                model.pinnedOnly = true
+            case kVK_ANSI_P, kVK_ANSI_R, kVK_ANSI_E:
                 guard let selected else { return true }
-                perform(.togglePin, on: selected)
+                let actions: [Int: CardAction] = [kVK_ANSI_P: .togglePin, kVK_ANSI_R: .rename, kVK_ANSI_E: .edit]
+                perform(actions[keyCode]!, on: selected)
             case kVK_ANSI_Z where model.query.isEmpty && lastDeleted != nil:
                 restoreLastDeleted()
             default:
@@ -249,10 +271,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try store.save()
             case .delete:
                 lastDeleted = try store.delete(item)
+            case .rename:
+                model.editMode = .rename
+                model.draft = item.title ?? ""
+                model.editingItem = item
+                return
+            case .edit:
+                guard item.isEditable else { NSSound.beep(); return }
+                model.editMode = .edit
+                model.draft = item.text
+                model.editingItem = item
+                return
             }
         } catch {
             NSLog("cccv: 항목 작업 실패 %@", String(describing: error))
         }
+        reloadItems()
+    }
+
+    private func saveEditing() {
+        guard let item = model.editingItem else { return }
+        do {
+            switch model.editMode {
+            case .rename:
+                let title = model.draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                item.title = title.isEmpty ? nil : title
+                try store.save()
+            case .edit:
+                try store.edit(item, newText: model.draft)
+            }
+        } catch {
+            NSLog("cccv: 편집 저장 실패 %@", String(describing: error))
+        }
+        model.editingItem = nil
         reloadItems()
     }
 

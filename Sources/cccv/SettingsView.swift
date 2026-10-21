@@ -19,6 +19,16 @@ enum AppSettings {
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "barPosition") }
     }
 
+    /// 카드·글자 크기 배율. 화면을 넘지 않도록 정해진 단계만 쓴다.
+    static let cardScaleChoices: [(scale: Double, label: String)] = [(0.85, "작게"), (1.0, "보통"), (1.2, "크게"), (1.4, "아주 크게")]
+    static var cardScale: Double {
+        get {
+            let scale = UserDefaults.standard.double(forKey: "cardScale")
+            return cardScaleChoices.contains { $0.scale == scale } ? scale : 1.0
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "cardScale") }
+    }
+
     /// 보존 기간(일). 무기한 옵션은 두지 않는다 (사용자 결정 — 용량 낭비).
     static let retentionChoices = [1, 7, 30, 90, 365]
     static var retentionDays: Int {
@@ -94,6 +104,7 @@ struct SettingsView: View {
         }
         .frame(width: 480)
         .onChange(of: model.position) { AppSettings.barPosition = model.position }
+        .onChange(of: model.scale) { AppSettings.cardScale = model.scale }
         .onChange(of: linkPreviewEnabled) { AppSettings.linkPreviewEnabled = linkPreviewEnabled }
         .onChange(of: excluded) { AppSettings.excludedBundleIDs = excluded }
         .onChange(of: patterns) { AppSettings.excludedPatterns = patterns }
@@ -120,6 +131,11 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
 
+                Picker("카드 크기", selection: $model.scale) {
+                    ForEach(AppSettings.cardScaleChoices, id: \.scale) { Text($0.label).tag($0.scale) }
+                }
+                .pickerStyle(.segmented)
+
                 // setter 에 메서드 참조를 그대로 넘기면 Swift 6.2 컴파일러가 IRGen 에서 크래시한다 → 클로저로 감싼다.
                 Picker("보존 기간", selection: Binding(get: { retentionDays }, set: { requestRetention($0) })) {
                     ForEach(AppSettings.retentionChoices, id: \.self) { days in
@@ -140,7 +156,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 220)
+        .frame(height: 260)
     }
 
     private var privacyTab: some View {
