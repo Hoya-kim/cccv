@@ -1,6 +1,7 @@
 import AppKit
 import CCCVCore
 import Quartz
+import UniformTypeIdentifiers
 
 /// Space 미리보기. 시스템 Quick Look 창(QLPreviewPanel)은 뜨면서 키 창이 돼 바가 닫히고 위치도 화면 가운데라,
 /// Quick Look 의 보기(QLPreviewView)만 키를 받지 않는 작은 창에 넣어 선택한 카드 옆에 띄운다.
@@ -120,9 +121,29 @@ final class QuickLook {
             }
             return rich.map { ($0, true) }
                 ?? (NSAttributedString(string: item.text, attributes: [.font: NSFont.systemFont(ofSize: 14)]), true)
+        case .file:
+            // 텍스트 파일(md·txt·코드)도 QL 로 그리면 위가 잘린다 → 직접 읽는다. 이미지·PDF 등은 QL 에 맡긴다.
+            return item.text.split(separator: "\n").first.flatMap { textFile(at: URL(filePath: String($0))) }.map { ($0, false) }
         default:
             return nil
         }
+    }
+
+    /// 텍스트 계열 파일(md·txt·코드·json·yml·csv·log 등)이면 앞부분을 고정폭 글꼴로. 너무 크면 잘라서 보여 준다.
+    /// RTF·HTML 은 원문 그대로면 태그가 보이므로 QL 에 맡긴다.
+    private func textFile(at url: URL) -> NSAttributedString? {
+        guard let type = UTType(filenameExtension: url.pathExtension),
+              type.conforms(to: .text), !type.conforms(to: .rtf), !type.conforms(to: .html),
+              let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let limit = 512 * 1024
+        guard let data = try? handle.read(upToCount: limit + 1) else { return nil }
+        // 잘린 끝에서 멀티바이트 글자가 깨지지 않도록 lossy 디코딩
+        var text = String(decoding: data.prefix(limit), as: UTF8.self)
+        if data.count > limit { text += "\n\n… (512KB 이후 생략)" }
+        return NSAttributedString(string: text, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.labelColor,
+        ])
     }
 
     private func makeFile(for item: ClipItem) -> URL? {
