@@ -21,6 +21,10 @@ final class BarModel {
     var editingItem: ClipItem?
     var editMode = EditMode.rename
     var draft = ""
+    /// ⌘T 로 연 변환 목록. 비어 있지 않으면 카드 목록 위에 번호 목록이 보인다.
+    var transforms: [(label: String, result: String)] = []
+    /// 변환 목록에서 고른 줄 (↑↓·마우스). 오른쪽에 결과 전체를 보여 준다.
+    var transformSelection = 0
 }
 
 enum EditMode {
@@ -28,7 +32,7 @@ enum EditMode {
 }
 
 enum CardAction {
-    case togglePin, delete, rename, edit
+    case togglePin, delete, rename, edit, transform
 }
 
 /// 카드 기본 크기. 실제 크기는 BarModel.scale 을 곱한다.
@@ -45,6 +49,8 @@ struct BarView: View {
     /// 검색어나 전체/고정 탭이 바뀌었을 때.
     let onQueryChange: () -> Void
     let onAction: (CardAction, ClipItem) -> Void
+    /// 변환 결과를 붙여넣는다.
+    let onPasteText: (String) -> Void
 
     private enum Field { case search, editor }
     @FocusState private var focus: Field?
@@ -59,6 +65,7 @@ struct BarView: View {
             cardList
                 .overlay {
                     if model.editingItem != nil, model.editMode == .edit { contentEditor }
+                    if !model.transforms.isEmpty { transformList }
                 }
         }
         .onChange(of: model.query) { onQueryChange() }
@@ -171,6 +178,56 @@ struct BarView: View {
             .padding(16)
     }
 
+    /// ⌘T 변환 목록. 왼쪽 목록에서 고르고(↑↓·마우스), 오른쪽에 결과 전체를 보여 준다.
+    private var transformList: some View {
+        let s = model.scale
+        let transforms = Array(model.transforms.prefix(9))
+        let selected = transforms.indices.contains(model.transformSelection) ? transforms[model.transformSelection] : nil
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("변환해서 붙여넣기").font(.system(size: 14 * s, weight: .bold))
+                Spacer()
+                Text("↑↓ 선택 · Return / 1–9 붙여넣기 · Esc 닫기").font(.system(size: 11 * s)).foregroundStyle(.secondary)
+            }
+            // 가로 바는 목록|미리보기 좌우, 좁은 세로 바는 위아래.
+            let horizontal = model.position.isHorizontal
+            let layout = horizontal ? AnyLayout(HStackLayout(alignment: .top, spacing: 12)) : AnyLayout(VStackLayout(spacing: 12))
+            layout {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(transforms.enumerated()), id: \.offset) { index, transform in
+                            Button { onPasteText(transform.result) } label: {
+                                HStack(spacing: 8) {
+                                    Text("\(index + 1)").font(.system(size: 13 * s, design: .monospaced)).foregroundStyle(.secondary)
+                                    Text(transform.label).font(.system(size: 14 * s))
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(index == model.transformSelection ? Color.accentColor.opacity(0.25) : .clear,
+                                            in: RoundedRectangle(cornerRadius: 6))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { if $0 { model.transformSelection = index } }
+                        }
+                    }
+                }
+                .frame(width: horizontal ? 230 * s : nil)
+                .frame(maxHeight: horizontal ? nil : 220 * s)
+                Divider()
+                ScrollView {
+                    Text(selected?.result ?? "")
+                        .font(.system(size: 13 * s, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+            }
+        }
+        .padding(12)
+        .background(.background, in: RoundedRectangle(cornerRadius: 12))
+        .padding(16)
+    }
+
     private var cardList: some View {
         ScrollViewReader { proxy in
             ScrollView(model.position.isHorizontal ? .horizontal : .vertical, showsIndicators: false) {
@@ -206,6 +263,10 @@ struct BarView: View {
                     Button("이름 변경 (⌘R)") { onAction(.rename, item) }
                     if item.isEditable {
                         Button("내용 편집 (⌘E)") { onAction(.edit, item) }
+                        // 하위 메뉴 대신 ⌘T 와 같은 미리보기 화면을 연다 (결과를 보고 고를 수 있게).
+                        if !Transform.available(for: item.text).isEmpty {
+                            Button("변환해서 붙여넣기 (⌘T)") { onAction(.transform, item) }
+                        }
                     }
                     Divider()
                     Button("삭제 (⌫)", role: .destructive) { onAction(.delete, item) }

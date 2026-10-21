@@ -263,6 +263,7 @@ struct SettingsView: View {
             ("고정 / 고정 해제", [["⌘", "P"]]),
             ("이름 변경 (Return 저장)", [["⌘", "R"]]),
             ("내용 편집 (⌘Return 저장)", [["⌘", "E"]]),
+            ("변환해서 붙여넣기 (↑↓ 선택, Return·1–9)", [["⌘", "T"]]),
             ("삭제 (검색어가 비어 있을 때)", [["⌫"]]),
             ("마지막 삭제 되돌리기", [["⌘", "Z"]]),
         ]),
@@ -291,7 +292,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 520)
+        .frame(height: 560)
     }
 
     private var privacyTab: some View {

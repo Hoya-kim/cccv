@@ -42,6 +42,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onAction: { [weak self] action, item in
                 self?.perform(action, on: item)
+            },
+            onPasteText: { [weak self] text in
+                self?.hide()
+                Paster.paste(text: text)
             }
         ))
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
@@ -206,6 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.filter = ClipFilter()
         model.sourceApps = (try? store.sourceBundleIDs()) ?? []
         model.editingItem = nil // 편집 중에 바가 닫혔다면 버린다
+        model.transforms = []
         model.selection = 0
         model.showCount += 1
         panel.show(at: model.position, scale: model.scale)
@@ -245,6 +250,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
 
+        // ⌘T 변환 목록이 떠 있으면 ↑↓·Return·1–9·Esc 만 받고 나머지 키는 삼킨다 (검색창으로 새지 않게).
+        if !model.transforms.isEmpty {
+            let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5, kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
+            let count = min(model.transforms.count, digits.count)
+            var pasteIndex: Int?
+            switch keyCode {
+            case kVK_Escape:
+                model.transforms = []
+            case kVK_UpArrow:
+                model.transformSelection = max(model.transformSelection - 1, 0)
+            case kVK_DownArrow:
+                model.transformSelection = min(model.transformSelection + 1, count - 1)
+            case kVK_Return, kVK_ANSI_KeypadEnter:
+                pasteIndex = model.transformSelection
+            default:
+                pasteIndex = digits.firstIndex(of: keyCode)
+            }
+            if let pasteIndex, pasteIndex < count {
+                let text = model.transforms[pasteIndex].result
+                hide()
+                Paster.paste(text: text)
+            }
+            return true
+        }
+
         let selected = model.items.indices.contains(model.selection) ? model.items[model.selection] : nil
 
         if command {
@@ -254,9 +284,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 model.filter.pinnedOnly = false
             case kVK_RightArrow, kVK_ANSI_RightBracket:
                 model.filter.pinnedOnly = true
-            case kVK_ANSI_P, kVK_ANSI_R, kVK_ANSI_E:
+            case kVK_ANSI_P, kVK_ANSI_R, kVK_ANSI_E, kVK_ANSI_T:
                 guard let selected else { return true }
-                let actions: [Int: CardAction] = [kVK_ANSI_P: .togglePin, kVK_ANSI_R: .rename, kVK_ANSI_E: .edit]
+                let actions: [Int: CardAction] = [kVK_ANSI_P: .togglePin, kVK_ANSI_R: .rename, kVK_ANSI_E: .edit, kVK_ANSI_T: .transform]
                 perform(actions[keyCode]!, on: selected)
             case kVK_ANSI_Z where model.query.isEmpty && lastDeleted != nil:
                 restoreLastDeleted()
@@ -309,6 +339,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 model.editMode = .edit
                 model.draft = item.text
                 model.editingItem = item
+                return
+            case .transform:
+                let transforms = item.isEditable ? Transform.available(for: item.text) : []
+                guard !transforms.isEmpty else { NSSound.beep(); return }
+                model.transformSelection = 0
+                model.transforms = transforms
                 return
             }
         } catch {
