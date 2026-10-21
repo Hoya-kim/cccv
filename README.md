@@ -11,12 +11,7 @@
 복사한 텍스트·이미지·파일·링크·색상을 기록해 두고, <kbd>⇧⌘V</kbd> 로 바를 열어 골라 붙여넣습니다.
 [Paste](https://pasteapp.io/)·[PastePal](https://github.com/IndieGoodies/PastePal) 를 참고해 개인용으로 만들었습니다.
 
-<!--
-스크린샷 — docs/images/ 에 넣은 뒤 주석을 풀어 주세요.
-<p align="center"><img src="docs/images/bar.png" alt="하단 바"></p>
-<p align="center"><img src="docs/images/preview.png" width="49%" alt="Space 미리보기"> <img src="docs/images/transform.png" width="49%" alt="⌘T 변환"></p>
-<p align="center"><img src="docs/images/settings.png" width="49%" alt="설정"></p>
--->
+<p align="center"><img src="docs/images/bar.png" alt="⇧⌘V 로 연 하단 바 — 링크·이미지·JSON·색상·서식 텍스트·파일 카드"></p>
 
 ## 주요 기능
 
@@ -29,6 +24,12 @@
 - **정리** — 고정(보존 기간에서 제외), 이름 붙이기, 내용 편집, 삭제·되돌리기.
 - **개인정보** — 비밀번호 관리자 항목은 기록 안 함, 제외 앱, 정규식 패턴으로 기록 안 함 또는 N분 뒤 자동 삭제(토큰 등), 일시정지.
 - **링크 미리보기** — 링크 카드에 페이지 제목·대표 이미지.
+
+<p align="center"><img src="docs/images/preview.png" alt="Space 로 선택한 카드 위에 띄운 미리보기"></p>
+<p align="center"><sub>Space — 선택한 카드 옆에 크게 미리보기</sub></p>
+
+<p align="center"><img src="docs/images/transform.png" alt="⌘T 변환 목록과 결과 미리보기"></p>
+<p align="center"><sub>⌘T — 변환 목록과 결과 미리보기</sub></p>
 
 ## 설치 (공유받은 zip)
 
@@ -55,7 +56,7 @@
 | <kbd>←</kbd> <kbd>→</kbd> (세로 바 <kbd>↑</kbd> <kbd>↓</kbd>) | 항목 이동 |
 | <kbd>Return</kbd> / <kbd>⇧</kbd><kbd>Return</kbd> | 붙여넣기 / 서식 반대로 붙여넣기 |
 | <kbd>⌘</kbd><kbd>1</kbd>–<kbd>9</kbd> | 앞에서 N번째 바로 붙여넣기 |
-| <kbd>Space</kbd> | 크게 미리보기 (검색어가 비어 있을 때) |
+| <kbd>Space</kbd> / <kbd>⌘</kbd><kbd>Y</kbd> | 크게 미리보기 (검색 중엔 방향키로 고른 뒤 Space, 또는 ⌘Y) |
 | <kbd>⌘</kbd><kbd>[</kbd> <kbd>⌘</kbd><kbd>]</kbd> | 전체 / 고정 전환 |
 | <kbd>⌘</kbd><kbd>P</kbd> · <kbd>⌘</kbd><kbd>R</kbd> · <kbd>⌘</kbd><kbd>E</kbd> | 고정 · 이름 변경 · 내용 편집 |
 | <kbd>⌘</kbd><kbd>T</kbd> | 변환해서 붙여넣기 |
@@ -63,6 +64,12 @@
 | <kbd>Esc</kbd> | 검색어 지우기 → 바 닫기 |
 
 카드를 우클릭해도 같은 동작을 고를 수 있습니다. 바 열기 단축키, 바 위치, 카드 크기, 보존 기간(기본 30일), 로그인 시 자동 실행 등은 메뉴바 ⌘C 아이콘 → **설정…** 에서 바꿉니다.
+
+<p align="center">
+  <img src="docs/images/settings-general.png" width="32%" alt="설정 — 일반">
+  <img src="docs/images/settings-paste.png" width="32%" alt="설정 — 붙여넣기">
+  <img src="docs/images/settings-privacy.png" width="32%" alt="설정 — 개인정보 보호">
+</p>
 
 ## 개인정보
 
