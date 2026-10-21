@@ -60,9 +60,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         reloadItems()
         watcher.start()
 
-        hotKey = HotKey(keyCode: kVK_ANSI_V, modifiers: cmdKey | shiftKey) { [weak self] in
-            self?.toggle()
+        hotKey = HotKey { [weak self] in self?.toggle() }
+        if hotKey?.register(AppSettings.hotKey) != true {
+            NSLog("cccv: 저장된 단축키 %@ 등록 실패 → 기본값", AppSettings.hotKey.display)
+            AppSettings.hotKey = .default
+            hotKey?.register(.default)
         }
+        updateOpenMenuTitle()
 
         // 최초 실행 시 접근성 권한 요청. 거부해도 "선택 = 클립보드 복사"로 동작한다.
         _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
@@ -81,7 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         icon?.accessibilityDescription = "cccv"
         item.button?.image = icon
         let menu = NSMenu()
-        menu.addItem(withTitle: "열기 (⇧⌘V)", action: #selector(showFromMenu), keyEquivalent: "").target = self
+        openMenuItem = menu.addItem(withTitle: "열기", action: #selector(showFromMenu), keyEquivalent: "")
+        openMenuItem?.target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "수집 일시정지", action: #selector(togglePause(_:)), keyEquivalent: "").target = self
         menu.addItem(withTitle: "설정…", action: #selector(openSettings), keyEquivalent: ",").target = self
@@ -89,6 +94,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         statusItem = item
+    }
+
+    private var openMenuItem: NSMenuItem?
+
+    private func updateOpenMenuTitle() {
+        openMenuItem?.title = "열기 (\(AppSettings.hotKey.display))"
+    }
+
+    /// 설정에서 새 단축키를 고르면 호출된다. 등록에 실패하면 이전 조합으로 되돌리고 false.
+    private func applyHotKey(_ combo: HotKeyCombo) -> Bool {
+        guard hotKey?.register(combo) == true else {
+            hotKey?.register(AppSettings.hotKey)
+            return false
+        }
+        AppSettings.hotKey = combo
+        updateOpenMenuTitle()
+        return true
     }
 
     private func reloadItems() {
@@ -125,7 +147,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = NSHostingController(rootView: SettingsView(
             model: model,
             store: store,
-            onRetentionChange: { [weak self] in self?.purgeExpired() }
+            onRetentionChange: { [weak self] in self?.purgeExpired() },
+            onHotKeyRecording: { [weak self] recording in
+                // 기록 중에는 현재 단축키를 풀어 둬야 같은 조합을 눌러도 바가 열리지 않는다.
+                if recording { self?.hotKey?.unregister() } else { self?.hotKey?.register(AppSettings.hotKey) }
+            },
+            onHotKeyChange: { [weak self] combo in self?.applyHotKey(combo) ?? false }
         ))
         controller.sizingOptions = [.preferredContentSize] // 탭을 바꾸면 창 높이가 따라간다
         let window = NSWindow(contentViewController: controller)

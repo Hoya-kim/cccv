@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import CCCVCore
 import ServiceManagement
 import SwiftUI
@@ -17,6 +18,22 @@ enum AppSettings {
     static var barPosition: BarPosition {
         get { UserDefaults.standard.string(forKey: "barPosition").flatMap(BarPosition.init) ?? .bottom }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "barPosition") }
+    }
+
+    /// 바 열기 글로벌 단축키.
+    static var hotKey: HotKeyCombo {
+        get {
+            guard let dict = UserDefaults.standard.dictionary(forKey: "hotKey"),
+                  let keyCode = dict["keyCode"] as? Int, let modifiers = dict["modifiers"] as? Int,
+                  let keyLabel = dict["keyLabel"] as? String else { return .default }
+            return HotKeyCombo(keyCode: keyCode, modifiers: modifiers, keyLabel: keyLabel)
+        }
+        set {
+            UserDefaults.standard.set(
+                ["keyCode": newValue.keyCode, "modifiers": newValue.modifiers, "keyLabel": newValue.keyLabel],
+                forKey: "hotKey"
+            )
+        }
     }
 
     /// 카드·글자 크기 배율. 화면을 넘지 않도록 정해진 단계만 쓴다.
@@ -83,6 +100,14 @@ struct SettingsView: View {
     let store: ClipStore
     /// 보존 기간이 바뀐 뒤 정리를 돌리기 위해.
     let onRetentionChange: () -> Void
+    /// 단축키 기록을 시작(true)·끝(false)할 때. 기록 중에는 현재 단축키를 잠시 푼다.
+    let onHotKeyRecording: (Bool) -> Void
+    /// 새 단축키 등록. 실패하면 false.
+    let onHotKeyChange: (HotKeyCombo) -> Bool
+
+    @State private var hotKey = AppSettings.hotKey
+    @State private var recordingMonitor: Any?
+    @State private var hotKeyMessage: String?
 
     @State private var retentionDays = AppSettings.retentionDays
     @State private var pendingRetention: (days: Int, deleteCount: Int)?
@@ -127,6 +152,24 @@ struct SettingsView: View {
     private var generalTab: some View {
         Form {
             Section {
+                LabeledContent("바 열기 단축키") {
+                    HStack(spacing: 8) {
+                        if recordingMonitor != nil {
+                            Text("새 조합을 누르세요 · Esc 취소").foregroundStyle(.secondary)
+                            Button("취소", action: stopRecording)
+                        } else {
+                            HStack(spacing: 3) { ForEach(hotKey.tokens, id: \.self) { KeyCap(key: $0) } }
+                            Button("변경", action: startRecording)
+                            if hotKey != .default {
+                                Button("기본값") { record(.default) }
+                            }
+                        }
+                    }
+                }
+                if let hotKeyMessage {
+                    Text(hotKeyMessage).font(.caption).foregroundStyle(.red)
+                }
+
                 Picker("바 위치", selection: $model.position) {
                     ForEach(BarPosition.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
@@ -157,14 +200,59 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 260)
+        .frame(height: 320)
+        .onDisappear(perform: stopRecording) // 기록 중에 창을 닫아도 단축키가 풀린 채 남지 않게
+    }
+
+    private func startRecording() {
+        hotKeyMessage = nil
+        onHotKeyRecording(true)
+        recordingMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let keyCode = Int(event.keyCode)
+            let flags = event.modifierFlags
+            MainActor.assumeIsolated { recorded(keyCode: keyCode, flags: flags) }
+            return nil // 기록 중 누른 키는 다른 곳으로 보내지 않는다
+        }
+    }
+
+    private func recorded(keyCode: Int, flags: NSEvent.ModifierFlags) {
+        if keyCode == kVK_Escape, flags.intersection([.command, .option, .control, .shift]).isEmpty {
+            stopRecording()
+            return
+        }
+        let modifiers = [(NSEvent.ModifierFlags.command, HotKeyCombo.command), (.shift, HotKeyCombo.shift),
+                         (.option, HotKeyCombo.option), (.control, HotKeyCombo.control)]
+            .filter { flags.contains($0.0) }.reduce(0) { $0 | $1.1 }
+        let combo = HotKeyCombo(keyCode: keyCode, modifiers: modifiers, keyLabel: KeyLabel.name(for: keyCode))
+        guard combo.isAcceptable else {
+            hotKeyMessage = "⌘·⌥·⌃ 중 하나를 함께 눌러야 합니다. (\(combo.display))"
+            return // 계속 기록
+        }
+        record(combo)
+    }
+
+    private func record(_ combo: HotKeyCombo) {
+        if onHotKeyChange(combo) {
+            hotKey = combo
+            hotKeyMessage = nil
+        } else {
+            hotKeyMessage = "\(combo.display) 는 등록할 수 없습니다. 다른 조합을 써 주세요."
+        }
+        stopRecording()
+    }
+
+    private func stopRecording() {
+        guard let recordingMonitor else { return }
+        NSEvent.removeMonitor(recordingMonitor)
+        self.recordingMonitor = nil
+        onHotKeyRecording(false)
     }
 
     /// 바에서 쓰는 키. AppDelegate.handleKey 를 고치면 여기도 맞춘다.
     /// combos 는 같은 동작의 대체 키들, 각 combo 는 함께 누르는 키들.
-    private static let shortcuts: [(section: String, rows: [(action: String, combos: [[String]])])] = [
+    private var shortcuts: [(section: String, rows: [(action: String, combos: [[String]])])] { [
         ("바", [
-            ("바 열기 / 닫기", [["⇧", "⌘", "V"]]),
+            ("바 열기 / 닫기 (일반 탭에서 변경)", [hotKey.tokens]),
             ("항목 이동 (세로 바는 ↑ ↓)", [["←"], ["→"]]),
             ("붙여넣기", [["Return"]]),
             ("서식 없이 붙여넣기", [["⇧", "Return"]]),
@@ -178,11 +266,11 @@ struct SettingsView: View {
             ("삭제 (검색어가 비어 있을 때)", [["⌫"]]),
             ("마지막 삭제 되돌리기", [["⌘", "Z"]]),
         ]),
-    ]
+    ] }
 
     private var shortcutsTab: some View {
         Form {
-            ForEach(Self.shortcuts, id: \.section) { group in
+            ForEach(shortcuts, id: \.section) { group in
                 Section(group.section) {
                     ForEach(group.rows, id: \.action) { row in
                         LabeledContent(row.action) {
