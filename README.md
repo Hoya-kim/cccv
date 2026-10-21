@@ -9,7 +9,6 @@
 ---
 
 복사한 텍스트·이미지·파일·링크·색상을 기록해 두고, <kbd>⇧⌘V</kbd> 로 바를 열어 골라 붙여넣습니다.
-[Paste](https://pasteapp.io/)·[PastePal](https://github.com/IndieGoodies/PastePal) 를 참고해 개인용으로 만들었습니다.
 
 <p align="center"><img src="docs/images/bar.png" alt="⇧⌘V 로 연 하단 바 — 링크·이미지·JSON·색상·서식 텍스트·파일 카드"></p>
 
