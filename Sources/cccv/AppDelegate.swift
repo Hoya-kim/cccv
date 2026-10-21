@@ -14,6 +14,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var hotKey: HotKey?
     private var keyMonitor: Any?
+    /// 패널이 키 포커스를 훔치기 전에 앞에 있던 앱. Return 붙여넣기 때 다시 활성화한다.
+    private var pasteTarget: NSRunningApplication?
+    private var returnGate = ReturnPasteGate()
+    /// Return keyUp 에서 실행할 붙여넣기. nil 이면 keyUp 은 삼키기만 한다.
+    private var pendingReturnPaste: (() -> Void)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
@@ -253,12 +258,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.transforms = []
         model.selection = 0
         model.showCount += 1
+        cancelReturnPaste()
+        // makeKey 가 앞 앱의 키 포커스를 훔치기 전에 붙여넣을 앱을 잡아 둔다.
+        capturePasteTarget()
         panel.show(at: model.position, scale: model.scale)
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        if let existing = keyMonitor {
+            NSEvent.removeMonitor(existing)
+            keyMonitor = nil
+        }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
             let keyCode = Int(event.keyCode)
             let shift = event.modifierFlags.contains(.shift)
             let command = event.modifierFlags.contains(.command)
-            let handled = MainActor.assumeIsolated { self?.handleKey(keyCode, shift: shift, command: command) ?? false }
+            let keyUp = event.type == .keyUp
+            let handled = MainActor.assumeIsolated {
+                guard let self else { return false }
+                return keyUp ? self.handleKeyUp(keyCode) : self.handleKey(keyCode, shift: shift, command: command)
+            }
             return handled ? nil : event
         }
     }
@@ -269,12 +285,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderOut(nil)
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
+        cancelReturnPaste()
+    }
+
+    /// 바를 연 시점의 앞 앱. 비활성화하지 않는 패널이어도 키 포커스는 이쪽이 가져가므로,
+    /// 닫을 때 이 앱을 다시 활성화해야 합성 ⌘V 가 그 창에 닿는다.
+    private func capturePasteTarget() {
+        let front = NSWorkspace.shared.frontmostApplication
+        if let front, front.processIdentifier != NSRunningApplication.current.processIdentifier {
+            pasteTarget = front
+        } else {
+            pasteTarget = nil
+        }
+    }
+
+    private func activatePasteTarget() {
+        guard let pasteTarget, pasteTarget.processIdentifier != NSRunningApplication.current.processIdentifier else { return }
+        _ = pasteTarget.activate(from: .current)
+    }
+
+    private func cancelReturnPaste() {
+        returnGate.handle(.cancel)
+        pendingReturnPaste = nil
+    }
+
+    private func isReturnKey(_ keyCode: Int) -> Bool {
+        keyCode == kVK_Return || keyCode == kVK_ANSI_KeypadEnter
+    }
+
+    /// keyDown 에서는 붙여넣지 않고 대기만 한다. 실제 붙여넣기는 keyUp (handleKeyUp).
+    private func armReturnPaste(_ action: (() -> Void)?) {
+        returnGate.handle(.returnDown(triggersPaste: action != nil))
+        pendingReturnPaste = action
+    }
+
+    /// Return/Enter keyUp. 삼켜야 하면 true. 편집기 줄바꿈의 keyUp 은 false 로 통과시킨다.
+    private func handleKeyUp(_ keyCode: Int) -> Bool {
+        if (panel.firstResponder as? NSTextView)?.hasMarkedText() == true { return false }
+        guard isReturnKey(keyCode) else { return false }
+        switch returnGate.handle(.returnUp) {
+        case .pass:
+            return false
+        case .consume:
+            return true
+        case .paste:
+            // keyUp 처리를 끝낸 다음 런루프에서 닫는다. 이 이벤트 안에서 orderOut 하면
+            // 키 포커스 반환이 또 미뤄진다. 그 전에 바가 닫히면 pending 이 비워져 붙여넣지 않는다.
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let action = self.pendingReturnPaste
+                    self.pendingReturnPaste = nil
+                    action?()
+                }
+            }
+            return true
+        }
     }
 
     /// 처리한 키면 true (이벤트 소비). 그 외 키는 검색창으로 간다.
     private func handleKey(_ keyCode: Int, shift: Bool, command: Bool) -> Bool {
         // 한글 등 조합 중이면 Return·방향키는 입력기 몫이다.
         if (panel.firstResponder as? NSTextView)?.hasMarkedText() == true { return false }
+
+        // Return 을 누른 채 Esc 를 누르면 대기 중인 붙여넣기는 버린다.
+        if keyCode == kVK_Escape { cancelReturnPaste() }
 
         // 이름 변경·편집 중에는 저장/취소 키만 가로채고 나머지(방향키·줄바꿈)는 입력칸 몫이다.
         if model.editingItem != nil {
@@ -284,6 +359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case kVK_Return, kVK_ANSI_KeypadEnter:
                 // 내용 편집에서 Return 은 줄바꿈, ⌘Return 이 저장.
                 guard model.editMode == .rename || command else { return false }
+                armReturnPaste(nil) // keyUp 이 편집기·대상 앱으로 새지 않게
                 saveEditing()
             default:
                 return false
@@ -295,7 +371,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let digits = Self.digitKeys
         if !model.transforms.isEmpty {
             let count = min(model.transforms.count, digits.count)
-            var pasteIndex: Int?
             switch keyCode {
             case kVK_Escape:
                 model.transforms = []
@@ -304,14 +379,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case kVK_DownArrow:
                 model.transformSelection = min(model.transformSelection + 1, count - 1)
             case kVK_Return, kVK_ANSI_KeypadEnter:
-                pasteIndex = model.transformSelection
+                if model.transforms.indices.contains(model.transformSelection), model.transformSelection < count {
+                    let index = model.transformSelection
+                    armReturnPaste { [weak self] in
+                        guard let self, self.model.transforms.indices.contains(index) else { return }
+                        let text = self.model.transforms[index].result
+                        self.activatePasteTarget()
+                        self.hide()
+                        Paster.paste(text: text)
+                    }
+                } else {
+                    armReturnPaste(nil)
+                }
             default:
-                pasteIndex = digits.firstIndex(of: keyCode)
-            }
-            if let pasteIndex, pasteIndex < count {
-                let text = model.transforms[pasteIndex].result
-                hide()
-                Paster.paste(text: text)
+                // 1–9 는 키를 누르자마자 붙여넣는다 (Return 과 달리 이 경로는 원래부터 즉시).
+                if let pasteIndex = digits.firstIndex(of: keyCode), pasteIndex < count {
+                    let text = model.transforms[pasteIndex].result
+                    hide()
+                    Paster.paste(text: text)
+                }
             }
             return true
         }
@@ -373,7 +459,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.selection = min(model.selection + 1, max(model.items.count - 1, 0))
             quickLook.follow(model.items.indices.contains(model.selection) ? model.items[model.selection] : nil)
         case kVK_Return, kVK_ANSI_KeypadEnter:
-            pick(model.selection, plainText: shift)
+            // keyDown 에서 바로 붙여넣지 않는다. 패널을 지금 닫으면 Return 이 눌린 채라
+            // 앞 앱이 키 윈도우를 되찾기 전에 ⌘V 가 나가 버려진다.
+            if model.items.indices.contains(model.selection) {
+                let index = model.selection
+                let invert = shift
+                armReturnPaste { [weak self] in
+                    guard let self else { return }
+                    self.activatePasteTarget()
+                    self.pick(index, plainText: invert)
+                }
+            } else {
+                armReturnPaste(nil)
+            }
         case kVK_Escape:
             // 검색 중이면 검색어부터 지운다.
             if model.query.isEmpty { hide() } else { model.query = "" }

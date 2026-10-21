@@ -27,7 +27,9 @@ enum Paster {
     private static func sendCommandV() {
         guard AXIsProcessTrusted() else { return }
 
-        // 패널이 내려간 뒤 대상 앱 창이 키 입력을 받을 시간을 둔다.
+        // 패널이 내려간 뒤 대상 앱이 키 윈도우를 되찾을 시간을 둔다.
+        // Return/Enter 가 아직 눌린 상태에서 부르면 안 된다. 그 키의 keyUp 전에는
+        // 훔친 키 포커스가 풀리지 않아 ⌘V 가 사라진다 (ReturnPasteGate).
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             let source = CGEventSource(stateID: .combinedSessionState)
             for keyDown in [true, false] {
