@@ -1,10 +1,9 @@
 #!/bin/bash
 # release 빌드 후 build/CCCV.app 으로 조립·서명한다.
-# 서명 기본값은 ad-hoc(`codesign -s -`). 키체인을 보지 않으므로 인증서가 없는
-# 머신에서도 되고, 바이너리에 개인 이름·Team ID 가 들어가지 않는다.
-# 개발자 인증서로 서명하려면 CODESIGN_IDENTITY 에 이름 또는 SHA-1 을 넣는다.
-# ad-hoc 은 빌드마다 cdhash 가 바뀌어 손쉬운 사용(TCC) 권한이 풀린다.
-# 같은 인증서로 서명하면 그 권한은 보통 유지된다.
+# 서명: CODESIGN_IDENTITY > 키체인의 자체 서명 인증서 "CCCV Code Signing" > ad-hoc(-).
+# 자체 서명 인증서는 유료 프로그램 없이 만든 것이라 개인 이름·Team ID 가 들어가지 않고,
+# 같은 인증서로 서명하는 한 손쉬운 사용(TCC) 권한이 업데이트 뒤에도 유지된다.
+# ad-hoc 은 빌드마다 cdhash 가 바뀌어 그 권한이 풀린다 (인증서가 없는 Mac 에서 빌드할 때).
 # hardened runtime(--options runtime)은 쓰지 않는다. 공증용 Developer ID 가 없고,
 # ad-hoc 에 runtime 을 얹어도 권한이 유지되지 않는다.
 set -euo pipefail
@@ -47,7 +46,10 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-# 비어 있거나 지정하지 않으면 ad-hoc. `security find-identity` 는 호출하지 않는다.
+SELF_SIGNED="CCCV Code Signing"
+if [ -z "${CODESIGN_IDENTITY:-}" ] && security find-certificate -c "$SELF_SIGNED" >/dev/null 2>&1; then
+    CODESIGN_IDENTITY=$SELF_SIGNED
+fi
 IDENTITY=${CODESIGN_IDENTITY:--}
 if [ "$IDENTITY" = "-" ]; then
     echo "warning: ad-hoc 서명합니다. 재빌드마다 손쉬운 사용 권한을 다시 줘야 합니다. 인증서로 서명하려면 CODESIGN_IDENTITY 를 지정하세요." >&2
