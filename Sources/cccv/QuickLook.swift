@@ -3,85 +3,49 @@ import CCCVCore
 import Quartz
 import UniformTypeIdentifiers
 
-/// Space 미리보기. 시스템 Quick Look 창(QLPreviewPanel)은 뜨면서 키 창이 돼 바가 닫히고 위치도 화면 가운데라,
-/// Quick Look 의 보기(QLPreviewView)만 키를 받지 않는 작은 창에 넣어 선택한 카드 옆에 띄운다.
-/// 파일이 아닌 항목은 임시 파일로 만든다 — 클립보드 내용이 들어 있으니 다음 미리보기·닫기 때 지운다.
+/// 선택한 카드 옆에 뜨는 말풍선 창. Space 미리보기와 ⌘T 변환 목록이 쓴다.
+/// 키 창이 되지 않으므로 떠 있어도 바가 키 입력을 계속 받는다.
 @MainActor
-final class QuickLook {
-    /// 바 창. 미리보기 창을 자식 창으로 붙여 함께 움직이게 한다.
+final class CardBubble {
+    /// 바 창. 말풍선을 자식 창으로 붙여 함께 움직이게 한다.
     weak var parent: NSWindow?
     /// 선택한 카드의 화면 좌표.
     var anchor: () -> NSRect? = { nil }
     var position: () -> BarPosition = { .bottom }
 
     private(set) var isVisible = false
-    private let window = PreviewWindow()
-    private let previewView: QLPreviewView = QLPreviewView(frame: .zero, style: .normal)
-    /// 텍스트·서식 텍스트는 직접 그린다 — QL 의 .txt 보기는 작은 창에서 위가 잘리고, HTML 은 원본 페이지 스타일까지 그린다.
-    private let textScroll = NSTextView.scrollableTextView()
-    private var textView: NSTextView { textScroll.documentView as! NSTextView }
-    private let directory = FileManager.default.temporaryDirectory.appending(path: "cccv-preview")
-    private static let size = NSSize(width: 520, height: 380)
+    private let window = BubbleWindow()
+    private let size: NSSize
     private static let gap: CGFloat = 8
 
-    init() {
-        let background = NSVisualEffectView(frame: NSRect(origin: .zero, size: Self.size))
+    init(size: NSSize, content: NSView) {
+        self.size = size
+        let background = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
         background.material = .popover
         background.state = .active
         background.wantsLayer = true
         background.layer?.cornerRadius = 12
         background.layer?.masksToBounds = true
-        previewView.frame = background.bounds.insetBy(dx: 8, dy: 8)
-        previewView.autoresizingMask = [.width, .height]
-        previewView.shouldCloseWithWindow = false
-        background.addSubview(previewView)
-
-        textScroll.frame = background.bounds.insetBy(dx: 8, dy: 8)
-        textScroll.autoresizingMask = [.width, .height]
-        textScroll.drawsBackground = false
-        textView.isEditable = false
-        textView.textContainerInset = NSSize(width: 12, height: 12)
-        textScroll.wantsLayer = true
-        textScroll.layer?.cornerRadius = 8
-        background.addSubview(textScroll)
-
+        content.frame = background.bounds.insetBy(dx: 8, dy: 8)
+        content.autoresizingMask = [.width, .height]
+        background.addSubview(content)
+        // 창 크기를 먼저 맞춘다. 크기 0 인 창에 먼저 넣으면 내용이 0 으로 줄었다가(음수는 0 으로 잘림) 다시 늘면서
+        // 여백만큼 커져, 위·오른쪽으로 삐져나간다.
+        window.setContentSize(size)
         window.contentView = background
-        window.setContentSize(Self.size)
     }
 
-    func show(_ item: ClipItem) {
-        if let text = attributedText(for: item) {
-            textView.textStorage?.setAttributedString(text.string)
-            textView.drawsBackground = text.paper
-            textView.backgroundColor = .white
-            textView.scroll(.zero)
-            textScroll.isHidden = false
-            previewView.isHidden = true
-            try? FileManager.default.removeItem(at: directory)
-        } else {
-            guard let url = makeFile(for: item) else { NSSound.beep(); return }
-            previewView.previewItem = url as NSURL
-            textScroll.isHidden = true
-            previewView.isHidden = false
-        }
+    func show() {
         reposition()
-        if !isVisible {
-            parent?.addChildWindow(window, ordered: .above)
-            window.orderFront(nil)
-            isVisible = true
-        }
-    }
-
-    /// 미리보기가 열려 있을 때 선택이 바뀌면 따라간다.
-    func follow(_ item: ClipItem?) {
-        guard isVisible, let item else { return }
-        show(item)
+        guard !isVisible else { return }
+        parent?.addChildWindow(window, ordered: .above)
+        window.orderFront(nil)
+        isVisible = true
     }
 
     /// 카드 위치가 바뀌면(스크롤·선택 이동) 말풍선도 옮긴다.
     func reposition() {
         guard let parent, let card = anchor(), let screen = parent.screen else { return }
-        let size = Self.size
         let bar = parent.frame
         var origin: NSPoint = switch position() {
         case .bottom: NSPoint(x: card.midX - size.width / 2, y: bar.maxY + Self.gap)
@@ -100,8 +64,70 @@ final class QuickLook {
         guard isVisible else { return }
         window.parent?.removeChildWindow(window)
         window.orderOut(nil)
-        previewView.previewItem = nil
         isVisible = false
+    }
+}
+
+/// Space 미리보기. 시스템 Quick Look 창(QLPreviewPanel)은 뜨면서 키 창이 돼 바가 닫히고 위치도 화면 가운데라,
+/// Quick Look 의 보기(QLPreviewView)만 말풍선에 넣어 선택한 카드 옆에 띄운다.
+/// 파일이 아닌 항목은 임시 파일로 만든다 — 클립보드 내용이 들어 있으니 다음 미리보기·닫기 때 지운다.
+@MainActor
+final class QuickLook {
+    let bubble: CardBubble
+    var isVisible: Bool { bubble.isVisible }
+
+    private let previewView: QLPreviewView = QLPreviewView(frame: .zero, style: .normal)
+    /// 텍스트·서식 텍스트는 직접 그린다 — QL 의 .txt 보기는 작은 창에서 위가 잘리고, HTML 은 원본 페이지 스타일까지 그린다.
+    private let textScroll = NSTextView.scrollableTextView()
+    private var textView: NSTextView { textScroll.documentView as! NSTextView }
+    private let directory = FileManager.default.temporaryDirectory.appending(path: "cccv-preview")
+
+    init() {
+        let content = NSView()
+        bubble = CardBubble(size: NSSize(width: 520, height: 380), content: content)
+        previewView.frame = content.bounds
+        previewView.autoresizingMask = [.width, .height]
+        previewView.shouldCloseWithWindow = false
+        content.addSubview(previewView)
+
+        textScroll.frame = content.bounds
+        textScroll.autoresizingMask = [.width, .height]
+        textScroll.drawsBackground = false
+        textView.isEditable = false
+        textView.textContainerInset = NSSize(width: 12, height: 12)
+        textScroll.wantsLayer = true
+        textScroll.layer?.cornerRadius = 8
+        content.addSubview(textScroll)
+    }
+
+    func show(_ item: ClipItem) {
+        if let text = attributedText(for: item) {
+            textView.textStorage?.setAttributedString(text.string)
+            textView.drawsBackground = text.paper
+            textView.backgroundColor = .white
+            textView.scroll(.zero)
+            textScroll.isHidden = false
+            previewView.isHidden = true
+            try? FileManager.default.removeItem(at: directory)
+        } else {
+            guard let url = makeFile(for: item) else { NSSound.beep(); return }
+            previewView.previewItem = url as NSURL
+            textScroll.isHidden = true
+            previewView.isHidden = false
+        }
+        bubble.show()
+    }
+
+    /// 미리보기가 열려 있을 때 선택이 바뀌면 따라간다.
+    func follow(_ item: ClipItem?) {
+        guard isVisible, let item else { return }
+        show(item)
+    }
+
+    func close() {
+        guard isVisible else { return }
+        bubble.close()
+        previewView.previewItem = nil
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -207,7 +233,7 @@ final class QuickLook {
 }
 
 /// 키 창이 될 수 없는 창 — 떠 있어도 바가 키 입력을 계속 받고, 포커스를 잃어 닫히지 않는다.
-private final class PreviewWindow: NSPanel {
+private final class BubbleWindow: NSPanel {
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = .statusBar

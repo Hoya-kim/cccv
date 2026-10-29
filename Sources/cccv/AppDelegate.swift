@@ -10,6 +10,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let watcher = ClipboardWatcher()
     private let panel = BarPanel()
     private let quickLook = QuickLook()
+    private lazy var transformBubble: CardBubble = {
+        let content = NSHostingView(rootView: TransformList(model: model) { [weak self] text in
+            self?.hide()
+            Paster.paste(text: text)
+        })
+        content.sizingOptions = [] // 크기는 말풍선이 정한다
+        return CardBubble(size: NSSize(width: 560, height: 340), content: content)
+    }()
     private var ocr: OCRQueue!
     private var statusItem: NSStatusItem?
     private var hotKey: HotKey?
@@ -36,12 +44,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         setUpStatusItem()
         setUpMainMenu()
-        quickLook.parent = panel
-        quickLook.position = { [weak self] in self?.model.position ?? .bottom }
-        quickLook.anchor = { [weak self] in
-            // SwiftUI global 좌표(뒤집힌 hosting view 기준) → 창 좌표 → 화면 좌표
-            guard let self, let frame = model.selectedCardFrame, let content = panel.contentView else { return nil }
-            return panel.convertToScreen(content.convert(frame, to: nil))
+        for bubble in [quickLook.bubble, transformBubble] {
+            bubble.parent = panel
+            bubble.position = { [weak self] in self?.model.position ?? .bottom }
+            bubble.anchor = { [weak self] in
+                // SwiftUI global 좌표(뒤집힌 hosting view 기준) → 창 좌표 → 화면 좌표
+                guard let self, let frame = model.selectedCardFrame, let content = panel.contentView else { return nil }
+                return panel.convertToScreen(content.convert(frame, to: nil))
+            }
         }
 
         panel.contentView = NSHostingView(rootView: BarView(
@@ -59,13 +69,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onAction: { [weak self] action, item in
                 self?.perform(action, on: item)
             },
-            onPasteText: { [weak self] text in
-                self?.hide()
-                Paster.paste(text: text)
-            },
             onSelectedCardMove: { [weak self] in
-                guard let self, quickLook.isVisible else { return }
-                quickLook.reposition()
+                guard let self else { return }
+                if quickLook.isVisible { quickLook.bubble.reposition() }
+                if transformBubble.isVisible { transformBubble.reposition() }
             }
         ))
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
@@ -265,6 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func hide() {
         quickLook.close()
+        closeTransforms()
         guard panel.isVisible else { return }
         panel.orderOut(nil)
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
@@ -291,14 +299,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
 
-        // ⌘T 변환 목록이 떠 있으면 ↑↓·Return·1–9·Esc 만 받고 나머지 키는 삼킨다 (검색창으로 새지 않게).
+        // ⌘T 변환 목록이 떠 있으면 ←→·↑↓·Return·1–9·Esc·⌘T 만 받고 나머지 키는 삼킨다 (검색창으로 새지 않게).
         let digits = Self.digitKeys
         if !model.transforms.isEmpty {
             let count = min(model.transforms.count, digits.count)
             var pasteIndex: Int?
             switch keyCode {
             case kVK_Escape:
-                model.transforms = []
+                closeTransforms()
+            case kVK_ANSI_T where command: // 연 키로 다시 닫는다
+                closeTransforms()
+            case kVK_LeftArrow, kVK_RightArrow:
+                // ↑↓ 는 변환 목록 몫이라 세로 바에서도 카드 이동은 ←→ 로 한다.
+                moveTransformTarget(by: keyCode == kVK_LeftArrow ? -1 : 1)
             case kVK_UpArrow:
                 model.transformSelection = max(model.transformSelection - 1, 0)
             case kVK_DownArrow:
@@ -417,14 +430,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .transform:
                 let transforms = item.isEditable ? Transform.available(for: item.text) : []
                 guard !transforms.isEmpty else { NSSound.beep(); return }
+                // 우클릭 메뉴로 다른 카드에서 열 수도 있다 → 그 카드를 선택해 말풍선이 그 옆에 뜨게.
+                if let index = model.items.firstIndex(of: item) { model.selection = index }
+                quickLook.close() // 같은 카드에 붙으므로 둘 중 하나만
                 model.transformSelection = 0
                 model.transforms = transforms
+                transformBubble.show()
                 return
             }
         } catch {
             NSLog("cccv: 항목 작업 실패 %@", String(describing: error))
         }
         reloadItems()
+    }
+
+    /// 변환 목록을 연 채로 옆 카드로 옮긴다. 변환할 수 없는 카드(이미지 등)는 건너뛰고, 고르던 변환은 이어서 고른다.
+    private func moveTransformTarget(by step: Int) {
+        let label = model.transforms.indices.contains(model.transformSelection) ? model.transforms[model.transformSelection].label : nil
+        var index = model.selection + step
+        while model.items.indices.contains(index) {
+            let item = model.items[index]
+            let transforms = item.isEditable ? Transform.available(for: item.text) : []
+            if !transforms.isEmpty {
+                model.selection = index
+                model.transforms = transforms
+                // 목록은 앞 9개만 보이므로 그 밖이면 처음으로
+                let kept = transforms.firstIndex { $0.label == label }
+                model.transformSelection = kept.map { $0 < Self.digitKeys.count ? $0 : 0 } ?? 0
+                return
+            }
+            index += step
+        }
+        NSSound.beep() // 그쪽에 변환할 수 있는 카드가 없다
+    }
+
+    private func closeTransforms() {
+        model.transforms = []
+        transformBubble.close()
     }
 
     private func saveEditing() {
