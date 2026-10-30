@@ -70,3 +70,11 @@ private func result(_ text: String, _ label: String) -> String? {
     #expect(!labels("hello world").contains("snake_case")) // 공백이 있으면 식별자가 아니다
     #expect(!labels("user").contains("snake_case")) // 한 단어
 }
+
+@Test func aiTransformsOnlyForProse() {
+    #expect(AITransform.available(for: "안녕하세요 반갑습니다") == [.polish, .toEnglish])
+    #expect(AITransform.available(for: "hello there") == [.polish, .toKorean])
+    #expect(AITransform.available(for: String(repeating: "긴 글 ", count: 70)).first == .summarize)
+    #expect(AITransform.available(for: "https://example.com/a").isEmpty)
+    #expect(AITransform.available(for: #"{"a": 1, "b": 2}"#).isEmpty)
+}

@@ -24,7 +24,9 @@ final class BarModel {
     var editMode = EditMode.rename
     var draft = ""
     /// ⌘T 로 연 변환 목록. 비어 있지 않으면 선택한 카드 옆 말풍선에 번호 목록이 보인다.
-    var transforms: [(label: String, result: String)] = []
+    var transforms: [TransformEntry] = []
+    /// 변환 목록을 연 항목의 내용 (AI 변환 입력).
+    var transformSource = ""
     /// 변환 목록에서 고른 줄 (↑↓·마우스). 오른쪽에 결과 전체를 보여 준다.
     var transformSelection = 0
     /// 선택한 카드의 바 안 좌표 (SwiftUI global). Space 미리보기를 이 카드 옆에 띄운다.
@@ -243,7 +245,7 @@ struct BarView: View {
                     if item.isEditable {
                         Button("내용 편집 (⌘E)") { onAction(.edit, item) }
                         // 하위 메뉴 대신 ⌘T 와 같은 미리보기 화면을 연다 (결과를 보고 고를 수 있게).
-                        if !Transform.available(for: item.text).isEmpty {
+                        if !item.transformEntries.isEmpty {
                             Button("변환해서 붙여넣기 (⌘T)") { onAction(.transform, item) }
                         }
                     }
@@ -259,9 +261,11 @@ struct BarView: View {
 struct TransformList: View {
     let model: BarModel
     let onPaste: (String) -> Void
+    /// 고른 줄이 바뀌었을 때 (AI 변환은 이때 만든다).
+    let onSelectionChange: () -> Void
 
     var body: some View {
-        let transforms = Array(model.transforms.prefix(9))
+        let transforms = model.transforms
         let selected = transforms.indices.contains(model.transformSelection) ? transforms[model.transformSelection] : nil
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -270,36 +274,75 @@ struct TransformList: View {
                 Text("←→ 카드 · ↑↓ 선택 · Return / 1–9 붙여넣기 · Esc·⌘T 닫기").font(.system(size: 11)).foregroundStyle(.secondary)
             }
             HStack(alignment: .top, spacing: 12) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(Array(transforms.enumerated()), id: \.offset) { index, transform in
-                            Button { onPaste(transform.result) } label: {
-                                HStack(spacing: 8) {
-                                    Text("\(index + 1)").font(.system(size: 13, design: .monospaced)).foregroundStyle(.secondary)
-                                    Text(transform.label).font(.system(size: 14))
-                                    Spacer(minLength: 0)
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(index == model.transformSelection ? Color.accentColor.opacity(0.25) : .clear,
-                                            in: RoundedRectangle(cornerRadius: 6))
-                                .contentShape(Rectangle())
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(Array(transforms.enumerated()), id: \.offset) { index, transform in
+                                row(index, transform)
                             }
-                            .buttonStyle(.plain)
-                            .onHover { if $0 { model.transformSelection = index } }
                         }
+                    }
+                    .onChange(of: model.transformSelection) { _, index in
+                        proxy.scrollTo(index)
+                        onSelectionChange()
                     }
                 }
                 .frame(width: 200)
                 Divider()
-                ScrollView {
-                    Text(selected?.result ?? "")
-                        .font(.system(size: 13, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
+                if let selected { result(selected) }
             }
         }
         .padding(8)
+    }
+
+    private func row(_ index: Int, _ transform: TransformEntry) -> some View {
+        Button {
+            if let text = transform.result.text { onPaste(text) } else { NSSound.beep() }
+        } label: {
+            HStack(spacing: 8) {
+                // ⌘1–9 와 같이 앞 9개만 번호로 붙여넣는다
+                Text(index < 9 ? "\(index + 1)" : " ").font(.system(size: 13, design: .monospaced)).foregroundStyle(.secondary)
+                Text(transform.label).font(.system(size: 14))
+                Spacer(minLength: 0)
+                if transform.ai != nil { Image(systemName: "sparkles").foregroundStyle(.secondary) }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(index == model.transformSelection ? Color.accentColor.opacity(0.25) : .clear,
+                        in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .id(index)
+        .onHover { if $0 { model.transformSelection = index } }
+    }
+
+    private func result(_ transform: TransformEntry) -> some View {
+        // AI 결과는 글이라 일반 글꼴, 기존 변환은 코드·데이터라 고정폭.
+        let font = Font.system(size: 13, design: transform.ai == nil ? .monospaced : .default)
+        return VStack(alignment: .leading, spacing: 6) {
+            ScrollView {
+                Group {
+                    switch transform.result {
+                    case .ready(let text):
+                        Text(text)
+                    case .pending, .generating(""):
+                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("만드는 중…") }
+                            .foregroundStyle(.secondary)
+                    case .generating(let partial):
+                        Text(partial).foregroundStyle(.secondary)
+                    case .failed(let message):
+                        Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+                    }
+                }
+                .font(font)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            if transform.ai != nil {
+                Text("Apple Intelligence 가 이 Mac 에서 만든 결과입니다. 붙여넣기 전에 확인하세요.")
+                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+            }
+        }
     }
 }
 
