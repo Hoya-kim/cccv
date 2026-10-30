@@ -153,11 +153,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func reloadItems() {
+        let currentID = model.items.indices.contains(model.selection) ? model.items[model.selection].persistentModelID : nil
         do {
             model.items = try store.search(model.query, filter: model.filter)
             model.selection = min(model.selection, max(model.items.count - 1, 0))
         } catch {
             NSLog("cccv: 불러오기 실패 %@", String(describing: error))
+        }
+        // 변환 목록·미리보기는 선택 번호 자리의 카드 옆에 뜬다. 새 항목·정리로 그 자리 카드가 바뀌면
+        // 다른 카드 옆에 이전 카드의 내용이 남으므로 닫는다.
+        let newID = model.items.indices.contains(model.selection) ? model.items[model.selection].persistentModelID : nil
+        if currentID != newID {
+            closeTransforms()
+            quickLook.close()
         }
     }
 
