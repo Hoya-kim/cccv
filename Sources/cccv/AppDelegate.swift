@@ -11,13 +11,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let panel = BarPanel()
     private let quickLook = QuickLook()
     private lazy var transformBubble: CardBubble = {
-        let content = NSHostingView(rootView: TransformList(model: model) { [weak self] text in
-            self?.hide()
-            Paster.paste(text: text)
-        })
+        let content = NSHostingView(rootView: TransformList(
+            model: model,
+            onPaste: { [weak self] text in
+                self?.hide()
+                Paster.paste(text: text)
+            },
+            onSelectionChange: { [weak self] in self?.generateSelectedTransform() }
+        ))
         content.sizingOptions = [] // 크기는 말풍선이 정한다
         return CardBubble(size: NSSize(width: 560, height: 340), content: content)
     }()
+    /// 지금 만들고 있는 AI 변환. 한 번에 하나만.
+    private var aiTask: Task<Void, Never>?
     private var ocr: OCRQueue!
     private var statusItem: NSStatusItem?
     private var hotKey: HotKey?
@@ -265,7 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.filter = ClipFilter()
         model.sourceApps = (try? store.sourceBundleIDs()) ?? []
         model.editingItem = nil // 편집 중에 바가 닫혔다면 버린다
-        model.transforms = []
+        closeTransforms() // 바가 떠 있는 채 메뉴바 "열기"로 다시 열 수도 있다 — 만들던 AI 변환도 멈춘다
         model.selection = 0
         model.showCount += 1
         panel.show(at: model.position, scale: model.scale)
@@ -310,7 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ⌘T 변환 목록이 떠 있으면 ←→·↑↓·Return·1–9·Esc·⌘T 만 받고 나머지 키는 삼킨다 (검색창으로 새지 않게).
         let digits = Self.digitKeys
         if !model.transforms.isEmpty {
-            let count = min(model.transforms.count, digits.count)
+            let count = model.transforms.count
             var pasteIndex: Int?
             switch keyCode {
             case kVK_Escape:
@@ -330,7 +336,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 pasteIndex = digits.firstIndex(of: keyCode)
             }
             if let pasteIndex, pasteIndex < count {
-                let text = model.transforms[pasteIndex].result
+                // AI 변환은 다 만든 뒤에만. 아직이면 그 줄을 골라 만들기를 시작한다 (실패했으면 다시).
+                let entry = model.transforms[pasteIndex]
+                guard let text = entry.result.text else {
+                    if case .generating = entry.result { NSSound.beep() } // 만드는 중 — 기다린다
+                    model.transformSelection = pasteIndex
+                    generateSelectedTransform()
+                    return true
+                }
                 hide()
                 Paster.paste(text: text)
             }
@@ -436,14 +449,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 model.editingItem = item
                 return
             case .transform:
-                let transforms = item.isEditable ? Transform.available(for: item.text) : []
+                let transforms = item.transformEntries
                 guard !transforms.isEmpty else { NSSound.beep(); return }
                 // 우클릭 메뉴로 다른 카드에서 열 수도 있다 → 그 카드를 선택해 말풍선이 그 옆에 뜨게.
                 if let index = model.items.firstIndex(of: item) { model.selection = index }
                 quickLook.close() // 같은 카드에 붙으므로 둘 중 하나만
+                cancelAITransform()
                 model.transformSelection = 0
                 model.transforms = transforms
+                model.transformSource = item.text
                 transformBubble.show()
+                generateSelectedTransform()
                 return
             }
         } catch {
@@ -458,13 +474,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var index = model.selection + step
         while model.items.indices.contains(index) {
             let item = model.items[index]
-            let transforms = item.isEditable ? Transform.available(for: item.text) : []
+            let transforms = item.transformEntries
             if !transforms.isEmpty {
+                cancelAITransform()
                 model.selection = index
                 model.transforms = transforms
-                // 목록은 앞 9개만 보이므로 그 밖이면 처음으로
-                let kept = transforms.firstIndex { $0.label == label }
-                model.transformSelection = kept.map { $0 < Self.digitKeys.count ? $0 : 0 } ?? 0
+                model.transformSource = item.text
+                model.transformSelection = transforms.firstIndex { $0.label == label } ?? 0
+                generateSelectedTransform()
                 return
             }
             index += step
@@ -473,8 +490,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func closeTransforms() {
+        cancelAITransform()
         model.transforms = []
         transformBubble.close()
+    }
+
+    /// 고른 줄이 아직 만들지 않았거나 실패한 AI 변환이면 만든다. 다른 AI 변환을 만들던 중이면 그건 멈춘다 (다시 고르면 처음부터).
+    /// 기존 변환 줄로 옮기는 것만으로는 멈추지 않는다 — 결과를 기다리며 다른 줄을 볼 수 있게.
+    private func generateSelectedTransform() {
+        let index = model.transformSelection
+        guard model.transforms.indices.contains(index), let ai = model.transforms[index].ai else { return }
+        switch model.transforms[index].result {
+        case .pending, .failed: break
+        case .generating, .ready: return
+        }
+        cancelAITransform()
+        let text = model.transformSource
+        model.transforms[index].result = .generating("")
+        // 목록을 바꾸는 곳은 먼저 취소하지만, 놓친 경로가 있어도 다른 카드의 목록·빈 목록에 쓰지 않게 확인하고 쓴다.
+        let write = { [weak self] (result: TransformResult) in
+            guard !Task.isCancelled, let self, model.transformSource == text,
+                  model.transforms.indices.contains(index), model.transforms[index].ai == ai else { return }
+            model.transforms[index].result = result
+        }
+        aiTask = Task { [weak self] in
+            let result = await AITransformer.run(ai, on: text) { write(.generating($0)) }
+            write(result)
+            if !Task.isCancelled { self?.aiTask = nil }
+        }
+    }
+
+    private func cancelAITransform() {
+        aiTask?.cancel()
+        aiTask = nil
+        for index in model.transforms.indices {
+            if case .generating = model.transforms[index].result { model.transforms[index].result = .pending }
+        }
     }
 
     private func saveEditing() {
