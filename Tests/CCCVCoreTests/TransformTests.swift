@@ -75,6 +75,26 @@ private func result(_ text: String, _ label: String) -> String? {
     #expect(AITransform.available(for: "안녕하세요 반갑습니다") == [.polish, .toEnglish])
     #expect(AITransform.available(for: "hello there") == [.polish, .toKorean])
     #expect(AITransform.available(for: String(repeating: "긴 글 ", count: 70)).first == .summarize)
+    #expect(AITransform.available(for: String(repeating: "긴 글 ", count: 400)) == [.summarize]) // 다듬기·번역엔 너무 길다
+    #expect(AITransform.available(for: String(repeating: "긴 글 ", count: 1100)).isEmpty) // 요약에도 너무 길다
     #expect(AITransform.available(for: "https://example.com/a").isEmpty)
     #expect(AITransform.available(for: #"{"a": 1, "b": 2}"#).isEmpty)
+}
+
+@Test func aiInstructionsUseResultLanguage() {
+    // 지시문 언어로 답하려는 모델이라, 결과 언어로 쓴 지시문이어야 한다
+    #expect(AITransform.toEnglish.instructions(for: "레포 밖에서 쓰는 곳").hasPrefix("You are a translator"))
+    #expect(AITransform.toKorean.instructions(for: "hello there").hasPrefix("너는 번역가다"))
+    #expect(AITransform.polish.instructions(for: "hello there").hasPrefix("Fix the spelling"))
+    #expect(AITransform.polish.instructions(for: "확인해주고 고쳐줘").hasPrefix("글의 맞춤법"))
+    #expect(AITransform.polish.prompt(for: "확인해주고 고쳐줘") == "다듬을 글:\n확인해주고 고쳐줘")
+    #expect(AITransform.toEnglish.prompt(for: "안녕") == "Text to translate:\n안녕")
+}
+
+@Test func aiOutputDropsLeadingLabel() {
+    #expect(AITransform.clean("Translation:\nHello there.\n") == "Hello there.")
+    #expect(AITransform.clean("  번역: \n안녕") == "안녕")
+    #expect(AITransform.clean("Translation: Hello") == "Translation: Hello") // 같은 줄에 붙은 본문은 건드리지 않는다
+    #expect(AITransform.clean("Sure! Here is the polished text:\n\nHey, I can't make it.") == "Hey, I can't make it.")
+    #expect(AITransform.clean("Notes:\n- a") == "Notes:\n- a") // 글의 제목은 남긴다
 }

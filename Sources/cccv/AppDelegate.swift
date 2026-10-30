@@ -271,7 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.filter = ClipFilter()
         model.sourceApps = (try? store.sourceBundleIDs()) ?? []
         model.editingItem = nil // 편집 중에 바가 닫혔다면 버린다
-        model.transforms = []
+        closeTransforms() // 바가 떠 있는 채 메뉴바 "열기"로 다시 열 수도 있다 — 만들던 AI 변환도 멈춘다
         model.selection = 0
         model.showCount += 1
         panel.show(at: model.position, scale: model.scale)
@@ -336,8 +336,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 pasteIndex = digits.firstIndex(of: keyCode)
             }
             if let pasteIndex, pasteIndex < count {
-                // AI 변환은 다 만든 뒤에만
-                guard let text = model.transforms[pasteIndex].result.text else { NSSound.beep(); return true }
+                // AI 변환은 다 만든 뒤에만. 아직이면 그 줄을 골라 만들기를 시작한다 (실패했으면 다시).
+                let entry = model.transforms[pasteIndex]
+                guard let text = entry.result.text else {
+                    if case .generating = entry.result { NSSound.beep() } // 만드는 중 — 기다린다
+                    model.transformSelection = pasteIndex
+                    generateSelectedTransform()
+                    return true
+                }
                 hide()
                 Paster.paste(text: text)
             }
@@ -489,24 +495,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         transformBubble.close()
     }
 
-    /// 고른 줄이 아직 만들지 않은 AI 변환이면 만든다. 다른 AI 변환을 만들던 중이면 그건 멈춘다 (다시 고르면 처음부터).
+    /// 고른 줄이 아직 만들지 않았거나 실패한 AI 변환이면 만든다. 다른 AI 변환을 만들던 중이면 그건 멈춘다 (다시 고르면 처음부터).
     /// 기존 변환 줄로 옮기는 것만으로는 멈추지 않는다 — 결과를 기다리며 다른 줄을 볼 수 있게.
     private func generateSelectedTransform() {
         let index = model.transformSelection
-        guard model.transforms.indices.contains(index), let ai = model.transforms[index].ai,
-              case .pending = model.transforms[index].result else { return }
+        guard model.transforms.indices.contains(index), let ai = model.transforms[index].ai else { return }
+        switch model.transforms[index].result {
+        case .pending, .failed: break
+        case .generating, .ready: return
+        }
         cancelAITransform()
         let text = model.transformSource
         model.transforms[index].result = .generating("")
-        aiTask = Task { [weak self] in
-            let result = await AITransformer.run(ai, on: text) { partial in
-                guard !Task.isCancelled else { return }
-                self?.model.transforms[index].result = .generating(partial)
-            }
-            // 취소는 목록을 바꾸기 전에 하므로(cancelAITransform), 취소되지 않았으면 index 는 같은 줄이다.
-            guard !Task.isCancelled, let self else { return }
+        // 목록을 바꾸는 곳은 먼저 취소하지만, 놓친 경로가 있어도 다른 카드의 목록·빈 목록에 쓰지 않게 확인하고 쓴다.
+        let write = { [weak self] (result: TransformResult) in
+            guard !Task.isCancelled, let self, model.transformSource == text,
+                  model.transforms.indices.contains(index), model.transforms[index].ai == ai else { return }
             model.transforms[index].result = result
-            aiTask = nil
+        }
+        aiTask = Task { [weak self] in
+            let result = await AITransformer.run(ai, on: text) { write(.generating($0)) }
+            write(result)
+            if !Task.isCancelled { self?.aiTask = nil }
         }
     }
 

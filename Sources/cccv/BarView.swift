@@ -332,7 +332,7 @@ struct TransformList: View {
                     case .generating(let partial):
                         Text(partial).foregroundStyle(.secondary)
                     case .failed(let message):
-                        Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+                        Label("\(message) — Return 으로 다시 시도", systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
                     }
                 }
                 .font(font)

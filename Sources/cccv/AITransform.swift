@@ -38,16 +38,17 @@ extension ClipItem {
 enum AITransformer {
     /// 받은 부분마다 onPartial. 취소되면 .pending (다시 고르면 처음부터).
     static func run(_ transform: AITransform, on text: String, onPartial: (String) -> Void) async -> TransformResult {
-        let session = LanguageModelSession(instructions: transform.instructions)
+        let session = LanguageModelSession(instructions: transform.instructions(for: text))
+        let options = GenerationOptions(maximumResponseTokens: transform.maxResponseTokens)
         do {
             var last = ""
-            for try await snapshot in session.streamResponse(to: AITransform.prompt(for: text)) {
+            for try await snapshot in session.streamResponse(to: transform.prompt(for: text), options: options) {
                 last = snapshot.content
                 onPartial(last)
             }
             // 취소하면 스트림이 오류 없이 끝난다 — 받다 만 결과를 완성본으로 넘기지 않는다
             if Task.isCancelled { return .pending }
-            let result = last.trimmingCharacters(in: .whitespacesAndNewlines)
+            let result = AITransform.clean(last)
             return result.isEmpty ? .failed("결과가 비어 있습니다") : .ready(result)
         } catch is CancellationError {
             return .pending
