@@ -163,6 +163,23 @@ private func text(_ s: String) -> ClipContent { ClipContent(kind: .text, text: s
 }
 
 @MainActor
+@Test func restoreKeepsExpiryAndOCR() throws {
+    let store = try ClipStore(url: nil)
+    let expiry = Date(timeIntervalSince1970: 5000)
+    try store.add(text("secret"), sourceBundleID: nil, at: Date(timeIntervalSince1970: 1000), expiresAt: expiry)
+    try store.restore(try store.delete(try #require(try store.recent().first)))
+    #expect(try store.recent().first?.expiresAt == expiry) // 되돌려도 민감정보 만료가 유지된다
+    #expect(try store.purgeExpired(now: expiry) == 1)
+
+    try store.add(ClipContent(kind: .image, text: "", payload: Data([1]), payloadType: "public.png"), sourceBundleID: nil)
+    let job = try #require(try store.nextImageForOCR())
+    try store.setOCR(job.id, text: "영수증")
+    try store.restore(try store.delete(try #require(try store.recent().first)))
+    #expect(try store.search("영수증").count == 1)
+    #expect(try store.nextImageForOCR() == nil) // 다시 인식하지 않는다
+}
+
+@MainActor
 @Test func editReclassifiesAndDropsFormatting() throws {
     let store = try ClipStore(url: nil)
     try store.add(ClipContent(kind: .richText, text: "hello", payload: Data([1]), payloadType: "public.rtf"), sourceBundleID: "app.one")

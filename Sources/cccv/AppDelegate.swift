@@ -275,6 +275,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.selection = 0
         model.showCount += 1
         panel.show(at: model.position, scale: model.scale)
+        // 다시 열 때 이전 모니터를 남기면 바를 닫은 뒤에도 다른 창의 키를 가로챈다.
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let keyCode = Int(event.keyCode)
             let shift = event.modifierFlags.contains(.shift)
