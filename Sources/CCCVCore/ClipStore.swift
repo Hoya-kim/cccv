@@ -209,6 +209,9 @@ public final class ClipStore {
         let linkFetchedAt: Date?
         let isPinned: Bool
         let title: String?
+        let ocrText: String?
+        let ocrProcessed: Bool
+        let expiresAt: Date?
     }
 
     public func delete(_ item: ClipItem) throws -> DeletedClip {
@@ -216,7 +219,8 @@ public final class ClipStore {
             content: ClipContent(kind: item.kind, text: item.text, payload: item.payload, payloadType: item.payloadType),
             sourceBundleID: item.sourceBundleID, copiedAt: item.copiedAt,
             linkTitle: item.linkTitle, linkImage: item.linkImage, linkFetchedAt: item.linkFetchedAt,
-            isPinned: item.isPinned, title: item.title
+            isPinned: item.isPinned, title: item.title,
+            ocrText: item.ocrText, ocrProcessed: item.ocrProcessed, expiresAt: item.expiresAt
         )
         context.delete(item)
         try context.save()
@@ -230,6 +234,9 @@ public final class ClipStore {
         item.linkFetchedAt = deleted.linkFetchedAt
         item.isPinned = deleted.isPinned
         item.title = deleted.title
+        item.ocrText = deleted.ocrText
+        item.ocrProcessed = deleted.ocrProcessed
+        item.expiresAt = deleted.expiresAt // 민감정보 항목은 되돌려도 가림·자동 삭제가 유지된다
         context.insert(item)
         try context.save()
     }
